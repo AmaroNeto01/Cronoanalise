@@ -1,6 +1,6 @@
 // Cronoanálise · service worker: guarda o app no aparelho para abrir sem internet.
-const CACHE="crono-5b86b1b8f7";
-const FILES=["./", "index.html", "manifest.webmanifest", "vendor/exceljs.min.js", "vendor/jszip.min.js", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png", "icons/favicon-32.png"];
+const CACHE="crono-fdad6e46ff";
+const FILES=["./", "index.html", "manifest.webmanifest", "exceljs.min.js", "jszip.min.js", "icon-192.png", "icon-512.png", "maskable-512.png", "apple-touch-icon.png", "favicon-32.png"];
 self.addEventListener("install",e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)));
 });

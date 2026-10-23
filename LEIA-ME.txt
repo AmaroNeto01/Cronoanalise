@@ -4,8 +4,8 @@ PUBLICAR NO GITHUB PAGES (uma vez, cerca de 10 minutos)
 1. Entre em github.com (crie uma conta grátis se não tiver).
 2. Clique em "+" > "New repository". Nome: cronoanalise. Marque "Public". Clique em "Create repository".
 3. Na página do repositório, clique em "uploading an existing file".
-4. Arraste TODO o conteúdo desta pasta (index.html, sw.js, manifest.webmanifest, LEIA-ME.txt e as pastas icons e vendor).
-   Arraste o conteúdo, não a pasta "cronoanalise-app" em si. Clique em "Commit changes".
+4. Clique em "choose your files", selecione TODOS os 11 arquivos do zip descompactado (Ctrl+A) e clique em "Commit changes".
+   Não há pastas: todos os arquivos ficam soltos na raiz do repositório.
 5. Vá em Settings > Pages. Em "Branch", escolha "main" e a pasta "/ (root)". Clique em Save.
 6. Em 1 a 2 minutos o endereço aparece no topo da página:
    https://SEU-USUARIO.github.io/cronoanalise/

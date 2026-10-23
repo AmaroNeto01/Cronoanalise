@@ -1,0 +1,32 @@
+CRONOANÁLISE DE CAMPO · app instalável (PWA)
+
+PUBLICAR NO GITHUB PAGES (uma vez, cerca de 10 minutos)
+1. Entre em github.com (crie uma conta grátis se não tiver).
+2. Clique em "+" > "New repository". Nome: cronoanalise. Marque "Public". Clique em "Create repository".
+3. Na página do repositório, clique em "uploading an existing file".
+4. Arraste TODO o conteúdo desta pasta (index.html, sw.js, manifest.webmanifest, LEIA-ME.txt e as pastas icons e vendor).
+   Arraste o conteúdo, não a pasta "cronoanalise-app" em si. Clique em "Commit changes".
+5. Vá em Settings > Pages. Em "Branch", escolha "main" e a pasta "/ (root)". Clique em Save.
+6. Em 1 a 2 minutos o endereço aparece no topo da página:
+   https://SEU-USUARIO.github.io/cronoanalise/
+
+O código fica público; os estudos NÃO. Eles ficam salvos só no celular de cada analista.
+
+INSTALAR NO CELULAR (cada analista)
+Android (Chrome): abra o endereço > menu ⋮ > "Instalar app" (ou "Adicionar à tela inicial").
+iPhone (Safari): abra o endereço > Compartilhar > "Adicionar à Tela de Início".
+Abra pelo ícone uma vez com internet. Depois funciona sem internet.
+
+ATUALIZAR O APP
+Envie os arquivos novos para o mesmo repositório (Add file > Upload files, substituindo).
+Os celulares baixam a versão nova na próxima abertura com internet; aparece o aviso em Ajustes.
+
+ESTUDOS EM VÁRIOS DIAS OU TURNOS
+Crie um estudo por dia + turno + operador, sempre com o MESMO nome de operação.
+Use "Duplicar para outro dia ou turno" na aba Estudo.
+Para juntar: aba Consolidar > marque os estudos > escolha comparar por turno, perfil, data ou operador > Gerar Excel consolidado.
+Estudos de outros analistas: cada um exporta o Excel e salva na rede; você importa em Ajustes > Importar estudos.
+
+BACKUP
+Ajustes > Fazer backup gera um arquivo .json com todos os estudos. Guarde na rede.
+Para restaurar ou trocar de celular: Ajustes > Importar estudos > escolha o arquivo.

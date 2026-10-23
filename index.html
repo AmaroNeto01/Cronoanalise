@@ -1,0 +1,1966 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<title>Cronoanálise</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1C2328">
+<meta name="description" content="Cronoanálise de campo: cronômetro por elemento, não conformidades, produtividade e relatório em Excel. Funciona sem internet.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Cronoanálise">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<script>window.CRONO_PWA=true;</script>
+<script src="vendor/exceljs.min.js" defer></script>
+<script src="vendor/jszip.min.js" defer></script>
+<script>
+if("serviceWorker" in navigator&&location.protocol!=="file:"){
+  window.addEventListener("load",()=>{
+    navigator.serviceWorker.register("sw.js").then(reg=>{
+      const warn=w=>{if(w&&navigator.serviceWorker.controller&&window.CronoUI)window.CronoUI.swUpdate(w);};
+      if(reg.waiting)warn(reg.waiting);
+      reg.addEventListener("updatefound",()=>{const w=reg.installing;w&&w.addEventListener("statechange",()=>{if(w.state==="installed")warn(w);});});
+      setInterval(()=>reg.update().catch(()=>{}),60*60*1000);
+    }).catch(()=>{});
+    let reloaded=false;
+    navigator.serviceWorker.addEventListener("controllerchange",()=>{if(reloaded)return;reloaded=true;location.reload();});
+  });
+}
+</script>
+</head>
+<body>
+
+<style>
+/* App de cronoanálise: barra superior grafite com a marca, conteúdo em listas agrupadas, barra de abas inferior fixa, botão de marcação grande no alcance do polegar */
+:root{
+  --bg:#F2F3F5; --surface:#FFFFFF; --ink:#1B2329; --muted:#5D6B75; --line:#DADFE3; --sep:#E6E9EC;
+  --bar:#1C2328; --bar-ink:#F3F5F6; --bar-muted:#9AA7B0;
+  --accent:#B86A00; --accent-ink:#FFFFFF; --accent-soft:#F6E7D2; --tab-on:#B86A00;
+  --ok:#2F7D4A; --ok-soft:#DFF0E4; --warn:#A35A00; --warn-soft:#FBEBD5; --bad:#B23A32; --bad-ink:#FFFFFF; --bad-soft:#F8E0DE;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --r:12px; --tabh:58px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1215; --surface:#192025; --ink:#E6EBEE; --muted:#97A5AE; --line:#2C363D; --sep:#252E34;
+  --bar:#141A1E; --bar-ink:#E6EBEE; --bar-muted:#8C99A2;
+  --accent:#F0A23A; --accent-ink:#1B1406; --accent-soft:#3A2A14; --tab-on:#F0A23A;
+  --ok:#6CC58A; --ok-soft:#1D3325; --warn:#F0A23A; --warn-soft:#3A2A14; --bad:#F08A80; --bad-ink:#2A0E0B; --bad-soft:#3D2220;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1215; --surface:#192025; --ink:#E6EBEE; --muted:#97A5AE; --line:#2C363D; --sep:#252E34;
+  --bar:#141A1E; --bar-ink:#E6EBEE; --bar-muted:#8C99A2;
+  --accent:#F0A23A; --accent-ink:#1B1406; --accent-soft:#3A2A14; --tab-on:#F0A23A;
+  --ok:#6CC58A; --ok-soft:#1D3325; --warn:#F0A23A; --warn-soft:#3A2A14; --bad:#F08A80; --bad-ink:#2A0E0B; --bad-soft:#3D2220;
+  color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{background:var(--bar)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.4;overscroll-behavior-y:none;min-height:100vh;min-height:100dvh;-webkit-text-size-adjust:100%}
+h1,h2,h3{font-weight:700;letter-spacing:-.01em;text-wrap:balance;margin:0}
+h2{font-size:1.1rem}
+p{margin:0}
+.label{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.num,.big,.kpi .v,.kv b,.read .t,td.num{font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input,select,textarea{font:inherit;font-size:16px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-width:0}
+input[type="checkbox"]{width:22px;height:22px;padding:0;accent-color:var(--accent);flex:none}
+textarea{resize:vertical;min-height:44px}
+.ic{flex:none;display:block}
+
+/* barra superior */
+.bar{position:sticky;top:0;z-index:10;background:var(--bar);color:var(--bar-ink);padding-top:env(safe-area-inset-top,0px)}
+.bar-in{display:flex;align-items:center;gap:8px;min-height:50px;padding:0 max(8px,env(safe-area-inset-left)) 0 max(8px,env(safe-area-inset-left));max-width:820px;margin:0 auto}
+.bar-brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:.95rem;color:var(--bar-muted);padding-left:8px}
+.bar-brand .ic{color:var(--accent)}
+.bar-sp{flex:1}
+.bar-btn{display:flex;align-items:center;gap:2px;border:0;background:none;color:var(--bar-ink);min-height:44px;min-width:44px;justify-content:center;border-radius:10px;padding:0 6px}
+.bar-btn:active{background:rgba(255,255,255,.08)}
+.bar-btn.back{color:var(--accent);font-size:1rem;font-weight:500;padding-right:10px}
+.bar-btn[aria-disabled="true"]{opacity:.4}
+.bar-title{display:grid;min-width:0;flex:3;text-align:center;margin-right:44px}
+.bar-title b{font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar-title small{font-size:.72rem;color:var(--bar-muted)}
+.large{font-size:2rem;line-height:1.1;padding:4px 4px 0}
+
+/* barra de abas inferior */
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;justify-content:center;background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+.tabbar button{flex:1;max-width:200px;border:0;background:none;display:grid;justify-items:center;gap:2px;padding:7px 4px 6px;min-height:var(--tabh);color:var(--muted);font-size:.7rem;font-weight:600}
+.tabbar button[aria-current="page"]{color:var(--tab-on)}
+.tabbar .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--bad);vertical-align:middle;margin-left:2px;font-style:normal}
+
+/* conteúdo */
+.wrap{max-width:820px;margin:0 auto;padding:14px max(16px,env(safe-area-inset-left)) calc(var(--tabh) + 28px + env(safe-area-inset-bottom,0px))}
+.panel{display:grid;gap:16px}
+#app{display:grid;gap:16px}
+.box,.card{background:var(--surface);border-radius:var(--r);padding:14px;min-width:0}
+.card{display:grid;gap:10px}
+.box > h2{margin-bottom:10px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.field{display:grid;gap:5px;min-width:0}
+.hint{color:var(--muted);font-size:.86rem}
+.center{text-align:center}
+.pad{padding:0 4px}
+.foot{margin-top:4px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row.nowrap{flex-wrap:nowrap;gap:4px}
+.row.between{justify-content:space-between}
+.row > input{flex:1;width:auto}
+
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 14px;font-weight:600;min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn:active{filter:brightness(.94)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.plain{border-color:transparent;background:none;color:var(--accent);font-weight:600;padding-inline:6px}
+.btn.danger.plain{color:var(--bad)}
+.btn.wide{width:100%;min-height:52px;font-size:1.02rem}
+.btn.nc{color:var(--bad);border:2px solid var(--bad);background:var(--surface);min-height:56px;font-size:1.05rem;font-weight:800;letter-spacing:.02em}
+.btn.ncstop{background:var(--bad);border-color:var(--bad);color:var(--bad-ink);min-height:56px;font-size:1.05rem;font-weight:800}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.link{border:0;background:none;color:var(--accent);font-weight:600;font-size:.82rem;text-transform:none;letter-spacing:0;padding:4px}
+
+/* listas agrupadas */
+.group{display:grid;gap:6px}
+.group-h{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;padding:0 6px}
+.group-h > span{font-variant-numeric:tabular-nums}
+.list{background:var(--surface);border-radius:var(--r);overflow:hidden}
+.item{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;text-align:left;padding:12px 12px 12px 16px;min-height:60px;border-top:1px solid var(--sep);color:var(--ink)}
+.item:first-child{border-top:0}
+.item:active{background:var(--bg)}
+.item:disabled{opacity:.5}
+.item .ic{color:var(--muted)}
+.item-main{display:grid;gap:2px;flex:1;min-width:0}
+.item-main b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-main small{color:var(--muted);font-size:.84rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-meta{color:var(--muted);font-size:.84rem;white-space:nowrap;font-variant-numeric:tabular-nums}
+.check-item{cursor:pointer}
+.search{border-radius:12px;background:var(--surface);border-color:transparent}
+.banner{display:flex;align-items:center;gap:12px;border:0;border-radius:var(--r);background:var(--bad-soft);color:var(--ink);padding:12px 14px;text-align:left;width:100%}
+.banner .ic:first-child{color:var(--bad)}
+.banner span{flex:1}
+.seg{display:flex;background:var(--sep);border-radius:10px;padding:3px;gap:2px;overflow-x:auto}
+.seg button{flex:1;border:0;background:none;border-radius:8px;padding:8px 6px;font-size:.84rem;font-weight:600;color:var(--muted);white-space:nowrap;min-height:36px}
+.seg button[aria-checked="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.sticky-act{display:grid;gap:6px}
+.note{padding:10px 12px;border-radius:10px;font-size:.86rem}
+.note.warn{background:var(--warn-soft);color:var(--ink)}
+.empty{text-align:center;padding:36px 12px;display:grid;gap:12px;justify-items:center}
+.empty .hint{max-width:42ch}
+.empty-ic{width:84px;height:84px;border-radius:24px;background:var(--bar);color:var(--accent);display:grid;place-items:center;margin-bottom:4px}
+.export{display:grid;gap:4px}
+
+.el-list{display:grid;gap:8px;margin-block:10px}
+.el-row{display:grid;grid-template-columns:24px 1fr auto;gap:8px;align-items:center}
+.el-row .idx{color:var(--muted);text-align:center;font-variant-numeric:tabular-nums}
+.icon-btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;width:44px;height:44px;display:grid;place-items:center;font-size:1.1rem}
+.icon-btn:disabled{opacity:.35}
+.tags{display:flex;gap:6px;flex-wrap:wrap}
+.tag{display:inline-flex;gap:4px;align-items:center;border-radius:999px;padding:4px 4px 4px 12px;font-size:.86rem;background:var(--bg)}
+.tag button{border:0;background:none;width:30px;height:30px;border-radius:50%;color:var(--muted);font-size:1.05rem}
+
+/* cronômetro */
+.clock{display:grid;gap:6px;text-align:center;padding-block:18px 14px}
+.clock .big{font-size:clamp(3rem,16vw,4.8rem);font-weight:300;line-height:1;letter-spacing:-.02em}
+.clock .sub{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:.9rem}
+.clock .cur{font-size:1.3rem;font-weight:700;color:var(--accent)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px}
+.chips.start-j{justify-content:flex-start}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:8px 12px;font-size:.86rem;min-height:36px}
+.chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--ink);font-weight:600}
+.ctrl{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ctrl .full{grid-column:1/-1}
+.mark{grid-column:1/-1;min-height:104px;border-radius:18px;border:0;background:var(--accent);color:var(--accent-ink);font-size:1.6rem;font-weight:800;letter-spacing:.03em;box-shadow:0 2px 0 rgba(0,0,0,.12)}
+.mark:active{transform:scale(.985)}
+.mark small{display:block;font-size:.8rem;font-weight:500;letter-spacing:0;opacity:.85;margin-top:2px}
+.mark:disabled{opacity:.4}
+.mark.last{background:var(--ink);color:var(--bg)}
+.ncbox{grid-column:1/-1;background:var(--bad-soft);border:2px solid var(--bad);border-radius:14px;padding:12px;display:grid;gap:10px}
+.ncbox .head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.ncbox .ncclock{font-size:2rem;font-weight:700;color:var(--bad);font-variant-numeric:tabular-nums}
+.ncbox .chip[aria-pressed="true"]{background:var(--bad);border-color:var(--bad);color:var(--bad-ink)}
+.start{display:grid;gap:12px}
+.start input{font-size:1.4rem;padding:12px;font-variant-numeric:tabular-nums}
+.trio{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.trio .btn{min-height:50px;padding-inline:6px}
+.done-strip{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-radius:12px;background:var(--ok-soft);color:var(--ink)}
+.done-strip b{color:var(--ok)}
+.endbox{display:grid;gap:8px;padding:14px;border-radius:14px;border:2px solid var(--ink);background:var(--surface)}
+.endbox .btn{text-align:left;min-height:54px;display:block}
+.endbox .sm{font-weight:400;font-size:.8rem;opacity:.8}
+.records{display:grid;gap:10px}
+
+.cyc{border-radius:12px;background:var(--surface);overflow:hidden}
+.cyc-h{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 12px;background:var(--sep)}
+.cyc-h .q{display:flex;gap:6px;align-items:center}
+.cyc-h .q input{width:84px;padding:6px 8px;text-align:right}
+.read{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:9px 12px;border-top:1px solid var(--sep)}
+.read.abn{background:var(--warn-soft)}
+.read.ncr{background:var(--bad-soft)}
+.read .t{font-weight:700;min-width:64px}
+.read .who{min-width:0}
+.read .who b{font-weight:600}
+.read .obs{color:var(--muted);font-size:.85rem;overflow-wrap:anywhere}
+.read .acts{display:flex;gap:4px;align-items:center}
+.read .acts button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 8px;font-size:.78rem;min-height:32px}
+.read .acts button[aria-pressed="true"]{background:var(--warn);color:var(--surface);border-color:var(--warn)}
+.read select{padding:4px 6px;font-size:.84rem;width:auto;max-width:100%}
+.badge{display:inline-block;padding:1px 7px;border-radius:999px;font-size:.72rem;font-weight:600;background:var(--bad);color:var(--bad-ink);margin-left:4px}
+.badge.warnb{background:var(--warn);color:var(--surface)}
+.chip.add{border-style:dashed;color:var(--bad);border-color:var(--bad)}
+
+/* resultados */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi{background:var(--surface);border-radius:var(--r);padding:12px;min-width:0}
+.kpi .v{font-size:1.5rem;font-weight:700;overflow-wrap:anywhere}
+.kpi .u{color:var(--muted);font-size:.8rem}
+.kpi.alert .v{color:var(--bad)}
+.tbl-wrap{overflow-x:auto;border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.86rem}
+th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--sep);white-space:nowrap}
+th{font-size:.7rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--surface)}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--surface)}
+td:first-child{white-space:normal;min-width:120px}
+tfoot td,tr.tot td{font-weight:700;border-bottom:0}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.74rem;font-weight:600}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+.kv div{display:grid;gap:2px}
+.kv b{font-size:1.05rem}
+.pareto{display:grid;gap:8px}
+.pbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center}
+.pbar .nm{font-size:.88rem;min-width:0;overflow-wrap:anywhere}
+.pbar .vl{font-size:.8rem;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.pbar .track{grid-column:1/-1;height:10px;border-radius:5px;background:var(--bg);overflow:hidden}
+.pbar .fill{height:100%;background:var(--bad);border-radius:5px}
+.neg{color:var(--bad);font-weight:600}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tabh) + 14px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:14px;font-size:.88rem;z-index:20;width:max-content;max-width:calc(100% - 32px);box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px;border-radius:12px;background:var(--bad-soft)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<header class="bar" id="bar"></header>
+<main class="wrap" id="app"></main>
+<nav class="tabbar" id="tabbar" aria-label="Navegação"></nav>
+<div class="toast" id="toast" role="status" hidden></div>
+<input type="file" id="fileIn" accept=".xlsx,.json,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden>
+
+<script>
+window.CronoCore=(function(){
+"use strict";
+const UNIDADES=[["peças","Peças"],["linhas","Linhas"],["t","Toneladas (t)"],["kg","Quilos (kg)"],["caixas","Caixas"],["volumes","Volumes"],["pedidos","Pedidos"],["ciclos","Ciclos (1 por ciclo)"],["outra","Outra…"]];
+const SING={linhas:"linha","peças":"peça",t:"t",kg:"kg",caixas:"caixa",volumes:"volume",pedidos:"pedido",ciclos:"ciclo"};
+const NC_PADRAO=["Falta de material","Falta de equipamento ou ferramenta","Material ou local errado","Item avariado ou com defeito","Divergência de quantidade","Sistema ou máquina parada","Espera ou interferência","Retrabalho","Outros"];
+const NC_ANTIGOS=["Equipamento ou sistema"];
+const TURNOS=["1º turno","2º turno","3º turno","Administrativo"];
+
+function normalize(s){
+  if(s.unidade==null)s.unidade="peças";
+  if(s.unidadeOutra==null)s.unidadeOutra="";
+  if(s.pessoas==null||s.pessoas==="")s.pessoas=1;
+  if(s.demanda==null)s.demanda="";
+  if(s.horasDia==null||s.horasDia==="")s.horasDia=6.3;
+  if(s.turno==null)s.turno="";
+  if(s.perfil==null)s.perfil="";
+  if(s.ncExclui==null)s.ncExclui=true;
+  if(!Array.isArray(s.tiposNC))s.tiposNC=NC_PADRAO.slice();
+  if(!Array.isArray(s.elementos)||!s.elementos.length)s.elementos=[{id:"e"+Date.now().toString(36),nome:"Elemento 1",ritmo:100}];
+  if(!Array.isArray(s.ciclos))s.ciclos=[];
+  s.ciclos.forEach((c,i)=>{
+    if(!Array.isArray(c.leituras))c.leituras=[];
+    if(!Array.isArray(c.ncs))c.ncs=[];
+    if(c.qtd===undefined||c.qtd==="")c.qtd=null;
+    if(c.obs==null)c.obs="";
+    if(c.n==null)c.n=i+1;
+    c.leituras.forEach(l=>{l.t=+l.t||0;l.nc=+l.nc||0;if(l.obs==null)l.obs="";l.anormal=!!l.anormal;l.parcial=!!l.parcial;});
+    c.ncs.forEach(x=>{x.t=+x.t||0;if(x.obs==null)x.obs="";if(x.tipo==null)x.tipo="";});
+  });
+  return s;
+}
+const unidade=s=>s.unidade==="outra"?(String(s.unidadeOutra||"").trim()||"unid."):s.unidade;
+const sing=s=>{const u=unidade(s);return SING[u]||u;};
+// Cenário padrão: leituras com NC sempre fora da média (o cenário real as inclui).
+const excl=(s,l)=>!!(l.anormal||l.parcial||l.nc>0);
+const num=v=>{const n=typeof v==="number"?v:parseFloat(String(v??"").replace(",","."));return Number.isFinite(n)?n:NaN;};
+
+function describe(xs){
+  const n=xs.length,sum=xs.reduce((a,b)=>a+b,0),sum2=xs.reduce((a,b)=>a+b*b,0);
+  const mean=n?sum/n:NaN;
+  const sd=n>1?Math.sqrt(xs.reduce((a,b)=>a+(b-mean)**2,0)/(n-1)):NaN;
+  const o=xs.slice().sort((a,b)=>a-b);
+  const med=n?(n%2?o[(n-1)/2]:(o[n/2-1]+o[n/2])/2):NaN;
+  // Tamanho de amostra, 95% de confiança e erro de ±5%: N' = (40·√(nΣx² − (Σx)²) / Σx)²
+  const nNec=n>1&&sum>0?Math.ceil(((40*Math.sqrt(Math.max(0,n*sum2-sum*sum)))/sum)**2):NaN;
+  return {n,sum,mean,sd,med,min:n?o[0]:NaN,max:n?o[n-1]:NaN,cv:sd/mean*100,nNec};
+}
+
+function stats(s){
+  // Sem ritmo e sem tolerância: as pausas (PF&D) já estão descontadas nas horas disponíveis por dia.
+  const tol=0;
+  const N=Math.max(1,num(s.pessoas)||1);
+  const horas=num(s.horasDia)||6.3;
+  const dem=num(s.demanda);
+  const elIds=new Set(s.elementos.map(e=>e.id));
+
+  const rows=s.elementos.map(e=>{
+    // Um valor por ciclo: se o elemento foi marcado mais de uma vez no mesmo ciclo, os tempos são somados.
+    const xs=[],xr=[];let exc=0,ncN=0;
+    s.ciclos.forEach(c=>{const ls=c.leituras.filter(l=>l.elId===e.id);if(!ls.length)return;
+      const t=ls.reduce((a,l)=>a+l.t,0);
+      if(ls.some(l=>l.nc>0))ncN++;
+      if(ls.some(l=>excl(s,l)))exc++;else xs.push(t);
+      if(!ls.some(l=>l.anormal||l.parcial))xr.push(t);});
+    const d=describe(xs);
+    // Cenário real: inclui as leituras com não conformidade (só saem as anormais marcadas e as parciais)
+    const meanReal=xr.length?xr.reduce((a,b)=>a+b,0)/xr.length:NaN;
+    const ritmo=100;
+    const tn=d.mean,tp=tn;
+    return Object.assign({e,exc,ncN,ritmo,tn,tp,meanReal},d);
+  });
+  const sumF=(k)=>rows.reduce((a,r)=>a+(Number.isFinite(r[k])?r[k]:0),0);
+  const tmCiclo=sumF("mean"),tnCiclo=sumF("tn"),tpCiclo=sumF("tp");
+
+  const ciclos=s.ciclos.map(c=>{
+    const tempo=c.leituras.reduce((a,l)=>a+l.t,0);
+    const presentes=new Set(c.leituras.filter(l=>elIds.has(l.elId)&&!l.parcial).map(l=>l.elId));
+    const completo=presentes.size===elIds.size;
+    const temExcl=c.leituras.some(l=>excl(s,l));
+    const q=num(c.qtd)>0?num(c.qtd):null;
+    const ncT=c.ncs.reduce((a,x)=>a+x.t,0);
+    return {c,n:c.n,tempo,completo,temExcl,q,ncN:c.ncs.length,ncT,
+      sUn:q&&tempo?tempo/q:NaN, prodBruta:q&&tempo?q/(tempo*N/3600):NaN,
+      valido:!!(completo&&!temExcl&&q)};
+  });
+  const comQ=ciclos.filter(x=>x.completo&&x.q);
+  const qMean=comQ.length?comQ.reduce((a,x)=>a+x.q,0)/comQ.length:NaN;
+  const qTot=ciclos.reduce((a,x)=>a+(x.q||0),0);
+  const tnUn=tnCiclo>0&&qMean>0?tnCiclo/qMean:NaN;
+  const tpUn=tnUn*(1+tol);
+  const hhUn=tpUn*N/3600;
+  const prod=1/hhUn;
+  const capEq=3600/tpUn;
+  const capDia=capEq*horas;
+  const pessoasNec=dem>0?dem*hhUn/horas:NaN;
+  const amostra=describe(ciclos.filter(x=>x.valido).map(x=>x.sUn));
+  rows.forEach(x=>{x.pctCiclo=tmCiclo>0?x.mean/tmCiclo*100:NaN;x.porUn=qMean>0?x.mean/qMean:NaN;});
+  const cen=(ciclo)=>{const un=ciclo>0&&qMean>0?ciclo/qMean:NaN;const hh=un*N/3600;
+    return {ciclo,un,hh,prod:1/hh,capEq:3600/un,capDia:3600/un*horas,pessoasNec:dem>0?dem*hh/horas:NaN};};
+  const padrao=cen(tpCiclo);
+  const real=cen(rows.reduce((a,r)=>a+(Number.isFinite(r.meanReal)?r.meanReal:0),0));
+  const gap={prodPct:padrao.prod>0?(real.prod/padrao.prod-1)*100:NaN,capDia:real.capDia-padrao.capDia,
+    pessoas:real.pessoasNec-padrao.pessoasNec,cicloPct:padrao.ciclo>0?(real.ciclo/padrao.ciclo-1)*100:NaN};
+
+  const totalObs=ciclos.reduce((a,x)=>a+x.tempo,0);
+  const ncs=[];s.ciclos.forEach(c=>c.ncs.forEach(x=>ncs.push(Object.assign({ciclo:c.n},x))));
+  const ncTot=ncs.reduce((a,x)=>a+x.t,0);
+  const porTipo={};ncs.forEach(x=>{const k=x.tipo||"Não classificada";(porTipo[k]=porTipo[k]||{tipo:k,n:0,t:0});porTipo[k].n++;porTipo[k].t+=x.t;});
+  let acc=0;
+  const pareto=Object.values(porTipo).sort((a,b)=>b.t-a.t).map(p=>{acc+=p.t;return Object.assign(p,{media:p.t/p.n,pct:ncTot?p.t/ncTot*100:0,acum:ncTot?acc/ncTot*100:0,pctObs:totalObs?p.t/totalObs*100:0});});
+  const porEl=s.elementos.map(e=>{const xs=ncs.filter(x=>x.elId===e.id);return {nome:e.nome,n:xs.length,t:xs.reduce((a,x)=>a+x.t,0)};}).filter(x=>x.n);
+  const ciclosAfet=ciclos.filter(x=>x.ncN).length;
+
+  return {tol,N,horas,dem,rows,cenarios:{padrao,real,gap},tmCiclo,tnCiclo,tpCiclo,ciclos,
+    completos:ciclos.filter(x=>x.completo).length,comQ:comQ.length,qMean,qTot,tnUn,tpUn,hhUn,prod,capEq,capDia,pessoasNec,amostra,
+    nc:{lista:ncs,total:ncTot,n:ncs.length,totalObs,pctObs:totalObs?ncTot/totalObs*100:NaN,ciclosAfet,pctCiclos:ciclos.length?ciclosAfet/ciclos.length*100:NaN,pareto,porEl}};
+}
+
+const r=(v,d=2)=>Number.isFinite(v)?Math.round(v*10**d)/10**d:"";
+function elNome(s,id){const e=s.elementos.find(x=>x.id===id);return e?e.nome:"(elemento removido)";}
+
+function scen(st,u,u1){
+  const P=st.cenarios.padrao,R=st.cenarios.real;
+  const line=(l,a,b,d=2,inv)=>[l,r(a,d),r(b,d),r(b-a,d),Number.isFinite(a)&&a?r((b/a-1)*100,1):""];
+  return [line("Tempo do ciclo médio (s)",P.ciclo,R.ciclo),line("Tempo por "+u1+" (s)",P.un,R.un),line("Produtividade ("+u+"/h·h)",P.prod,R.prod,1),
+    line("Capacidade da equipe por dia ("+u+")",P.capDia,R.capDia,0),line("Pessoas necessárias para a demanda",P.pessoasNec,R.pessoasNec)];
+}
+function sheets(s){
+  const st=stats(s),u=unidade(s),u1=sing(s);
+  const situ=(n,need)=>Number.isFinite(need)?(n>=need?"Suficiente":"Faltam "+(need-n)):"Leituras insuficientes";
+
+  const resumo=[
+    ["RELATÓRIO DE CRONOANÁLISE"],[],
+    ["Estudo",s.nome||""],["Operação",s.operacao||""],["Posto / local",s.posto||""],["Turno",s.turno||""],["Perfil / grupo",s.perfil||""],
+    ["Operador",s.operador||""],["Analista",s.analista||""],["Data",s.data||""],[],
+    ["PARÂMETROS"],
+    ["Unidade de medida",u],["Pessoas na atividade",st.N],
+    ["Horas disponíveis por pessoa/dia (PF&D já descontado)",st.horas],["Demanda diária ("+u+")",st.dem>0?st.dem:"não informada"],
+    ["Ciclos cronometrados",st.ciclos.length],["Ciclos completos",st.completos],["Ciclos com quantidade informada",st.comQ],[],
+    ["PRODUTIVIDADE"],
+    ["Quantidade média por ciclo ("+u+")",r(st.qMean)],["Quantidade total observada ("+u+")",r(st.qTot)],
+    ["Tempo do ciclo médio (s)",r(st.tpCiclo)],["Tempo padrão por "+u1+" (s)",r(st.tpUn)],
+    ["Homem-hora por "+u1+" (h·h)",r(st.hhUn,5)],["Produtividade ("+u+"/h·h)",r(st.prod)],
+    ["Capacidade da equipe ("+u+"/h)",r(st.capEq)],["Capacidade da equipe por dia ("+u+")",r(st.capDia,1)],
+    ["Pessoas necessárias para a demanda",r(st.pessoasNec)],["Pessoas necessárias (arredondado para cima)",Number.isFinite(st.pessoasNec)?Math.ceil(st.pessoasNec-1e-9):""],[],
+    ["CENÁRIOS","Padrão (sem NC)","Real (com NC)","Diferença","Impacto (%)"],
+    ...scen(st,u,u1),[],
+    ["VALIDADE DA AMOSTRA · tempo por "+u1+" (ciclos completos, com quantidade e sem leitura excluída)"],
+    ["Ciclos válidos",st.amostra.n],["Média (s/"+u1+")",r(st.amostra.mean)],["Mediana (s/"+u1+")",r(st.amostra.med)],
+    ["Desvio padrão (s/"+u1+")",r(st.amostra.sd)],["CV (%)",r(st.amostra.cv,1)],["Mínimo",r(st.amostra.min)],["Máximo",r(st.amostra.max)],
+    ["Ciclos necessários (95% de confiança, ±5%)",Number.isFinite(st.amostra.nNec)?st.amostra.nNec:""],["Situação",situ(st.amostra.n,st.amostra.nNec)],[],
+    ["TEMPOS POR ELEMENTO"],
+    ["Elemento","Leituras válidas","Excluídas","Com NC","Média (s)","Mediana (s)","Desvio padrão (s)","CV (%)","Mínimo (s)","Máximo (s)","% do ciclo","Por "+u1+" (s)","Leituras necessárias (95%, ±5%)","Situação"],
+    ...st.rows.map(x=>[x.e.nome,x.n,x.exc,x.ncN,r(x.mean),r(x.med),r(x.sd),r(x.cv,1),r(x.min),r(x.max),r(x.pctCiclo,1),r(x.porUn),Number.isFinite(x.nNec)?x.nNec:"",situ(x.n,x.nNec)]),
+    ["CICLO MÉDIO","","","",r(st.tmCiclo),"","","","","",100,r(st.tpUn)],[],
+    ["NÃO CONFORMIDADES"],
+    ["Ocorrências",st.nc.n],["Tempo total em NC (s)",r(st.nc.total)],["% do tempo observado",r(st.nc.pctObs,1)],
+    ["Ciclos afetados",st.nc.ciclosAfet+" de "+st.ciclos.length],["% de ciclos afetados",r(st.nc.pctCiclos,1)],
+    ["Principal causa (tempo)",st.nc.pareto[0]?st.nc.pareto[0].tipo:"—"],[],
+    ["Observações gerais",s.obsGeral||""],[],
+    ["Tempo padrão = média das leituras válidas. As pausas (PF&D) estão descontadas nas horas disponíveis por pessoa/dia."],
+    ["Produtividade = 1 ÷ (tempo padrão por "+u1+" × pessoas ÷ 3600). Por "+u1+" = tempo do ciclo médio ÷ quantidade média por ciclo."],
+    ["Amostra: N' = (40·√(nΣx² − (Σx)²) / Σx)², para 95% de confiança e erro de ±5%."],
+    ["As não conformidades são cronometradas em paralelo ao elemento em andamento."]
+  ];
+
+  const elHead=s.elementos.map(e=>e.nome);
+  const ciclosAoa=[["Ciclo",...elHead,"Tempo do ciclo (s)","Quantidade ("+u+")","s por "+u1,"Produtividade bruta ("+u+"/h·h)","Válido para amostra","Nº de NC","Tempo em NC (s)","Observações"]];
+  st.ciclos.forEach(x=>{
+    const c=x.c;
+    const cels=s.elementos.map(e=>{const ls=c.leituras.filter(l=>l.elId===e.id);return ls.length?r(ls.reduce((a,l)=>a+l.t,0)):"";});
+    const obs=[];
+    if(c.obs)obs.push(c.obs);
+    c.leituras.forEach(l=>{if(l.obs)obs.push(elNome(s,l.elId)+": "+l.obs);});
+    c.ncs.forEach(n=>obs.push("NC "+(n.tipo||"não classificada")+" ("+r(n.t,1)+" s)"+(n.obs?": "+n.obs:"")));
+    ciclosAoa.push([x.n,...cels,r(x.tempo),x.q??"",r(x.sUn),r(x.prodBruta),x.valido?"Sim":"Não"+(!x.completo?" (incompleto)":!x.q?" (sem quantidade)":" (leitura excluída)"),x.ncN,r(x.ncT),obs.join(" | ")]);
+  });
+
+  const reg=[["Ciclo","Ordem","Elemento","Tempo (s)","Tempo em NC durante a leitura (s)","Anormal (marcada)","Excluída da média","Observação"]];
+  s.ciclos.forEach(c=>c.leituras.forEach((l,i)=>reg.push([c.n,i+1,elNome(s,l.elId),r(l.t),r(l.nc),l.parcial?"Parcial (estudo encerrado)":l.anormal?"Sim":"Não",excl(s,l)?"Sim":"Não",l.obs||""])));
+
+  const nc=[["Ciclo","Elemento em andamento","Tipo","Duração (s)","Observação"]];
+  st.nc.lista.forEach(x=>nc.push([x.ciclo,elNome(s,x.elId),x.tipo||"Não classificada",r(x.t),x.obs||""]));
+  if(!st.nc.lista.length)nc.push(["Nenhuma não conformidade registrada"]);
+  nc.push([],["PARETO POR TIPO"],["Tipo","Ocorrências","Tempo total (s)","Tempo médio (s)","% do tempo em NC","% acumulado","% do tempo observado"]);
+  st.nc.pareto.forEach(p=>nc.push([p.tipo,p.n,r(p.t),r(p.media),r(p.pct,1),r(p.acum,1),r(p.pctObs,1)]));
+  nc.push([],["POR ELEMENTO"],["Elemento","Ocorrências","Tempo total (s)"]);
+  st.nc.porEl.forEach(p=>nc.push([p.nome,p.n,r(p.t)]));
+
+  const obsA=[["Ciclo","Elemento","Origem","Tipo de NC","Tempo (s)","Observação"]];
+  if(s.obsGeral)obsA.push(["","","Estudo","","",s.obsGeral]);
+  s.ciclos.forEach(c=>{
+    if(c.obs)obsA.push([c.n,"","Ciclo","","",c.obs]);
+    c.leituras.forEach(l=>{if(l.obs)obsA.push([c.n,elNome(s,l.elId),"Leitura","",r(l.t),l.obs]);});
+    c.ncs.forEach(n=>{if(n.obs)obsA.push([c.n,elNome(s,n.elId),"Não conformidade",n.tipo||"Não classificada",r(n.t),n.obs]);});
+  });
+  if(obsA.length===1)obsA.push(["Nenhuma observação registrada"]);
+
+  return [
+    {name:"Resumo",aoa:resumo,cols:[44,16,11,9,11,11,13,9,11,11,10,14,14,16,20]},
+    {name:"Ciclos",aoa:ciclosAoa,cols:[7,...elHead.map(()=>14),13,13,11,16,20,9,13,60]},
+    {name:"Registros",aoa:reg,cols:[7,7,30,10,16,12,12,50]},
+    {name:"Não conformidades",aoa:nc,cols:[30,24,30,12,50,12,16]},
+    {name:"Observações",aoa:obsA,cols:[7,28,18,26,10,70]}
+  ];
+}
+
+return {scen,UNIDADES,NC_PADRAO,NC_ANTIGOS,TURNOS,normalize,unidade,sing,excl,num,describe,stats,sheets};
+})();
+
+</script>
+<script>
+window.CronoReport=(function(){
+"use strict";
+const C=window.CronoCore;
+const COL={ink:"1B2329",band:"1F2D36",bandSub:"C9D3D9",accent:"B86A00",accentSoft:"FBEBD5",muted:"5D6B75",line:"D3DADF",zebra:"F6F8F9",label:"EEF1F3",
+  bad:"B23A32",badSoft:"F8E0DE",ok:"2F7D4A",okSoft:"DFF0E4",warn:"A35A00",warnSoft:"FBEBD5",white:"FFFFFF",grey:"8A969E"};
+const F="Arial";
+const argb=h=>"FF"+h;
+const font=(o={})=>Object.assign({name:F,size:10,color:{argb:argb(COL.ink)}},o,o.color?{color:{argb:argb(o.color)}}:{});
+const fill=h=>({type:"pattern",pattern:"solid",fgColor:{argb:argb(h)}});
+const side=(h=COL.line,style="thin")=>({style,color:{argb:argb(h)}});
+const r2=(v,d=2)=>Number.isFinite(v)?Math.round(v*10**d)/10**d:null;
+const nf2="#,##0.00",nf1="#,##0.0",nf0="#,##0";
+
+/* ---------------- gráficos (canvas → PNG) ---------------- */
+function canvas(w,h){
+  if(typeof document==="undefined")return null;
+  const c=document.createElement("canvas");const k=2;c.width=w*k;c.height=h*k;const g=c.getContext("2d");g.scale(k,k);
+  g.fillStyle="#FFFFFF";g.fillRect(0,0,w,h);g.font="12px Arial";g.textBaseline="middle";return {c,g,w,h};
+}
+function niceMax(v){if(!(v>0))return 1;const p=10**Math.floor(Math.log10(v));const m=v/p;return (m<=1?1:m<=2?2:m<=2.5?2.5:m<=5?5:10)*p;}
+function fmtN(v,d=0){return v.toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});}
+function wrapLabel(g,txt,maxW){
+  const words=String(txt).split(/\s+/);const lines=[];let cur="";
+  words.forEach(w=>{const t=cur?cur+" "+w:w;if(g.measureText(t).width<=maxW||!cur)cur=t;else{lines.push(cur);cur=w;}});
+  if(cur)lines.push(cur);
+  if(lines.length>2){lines.length=2;let l=lines[1];while(g.measureText(l+"…").width>maxW&&l.length>1)l=l.slice(0,-1);lines[1]=l+"…";}
+  return lines;
+}
+function drawPareto(st){
+  const P=st.nc.pareto;if(!P.length)return null;
+  const K=canvas(620,330);if(!K)return null;const {g,w,h}=K;
+  const L=56,R=50,T=30,B=70,pw=w-L-R,ph=h-T-B;
+  const ymax=niceMax(P[0].t);
+  g.fillStyle="#"+COL.ink;g.font="bold 14px Arial";g.textAlign="left";g.fillText("Pareto das não conformidades (tempo perdido)",L,14);
+  g.font="12px Arial";
+  for(let i=0;i<=4;i++){const y=T+ph-ph*i/4;g.strokeStyle="#E3E8EB";g.lineWidth=1;g.beginPath();g.moveTo(L,y);g.lineTo(L+pw,y);g.stroke();
+    g.fillStyle="#"+COL.muted;g.textAlign="right";g.fillText(fmtN(ymax*i/4,ymax<10?1:0)+" s",L-6,y);
+    g.textAlign="left";g.fillText(fmtN(25*i)+"%",L+pw+6,y);}
+  const bw=pw/P.length;
+  P.forEach((p,i)=>{const bh=p.t/ymax*ph;const x=L+i*bw+bw*0.18;g.fillStyle="#"+COL.bad;g.fillRect(x,T+ph-bh,bw*0.64,bh);
+    g.fillStyle="#"+COL.ink;g.textAlign="center";g.font="bold 12px Arial";g.fillText(fmtN(p.t,1),L+i*bw+bw/2,T+ph-bh-9);
+    g.font="12px Arial";g.fillStyle="#"+COL.muted;wrapLabel(g,p.tipo,bw-6).forEach((ln,k)=>g.fillText(ln,L+i*bw+bw/2,T+ph+15+k*14));});
+  g.strokeStyle="#"+COL.accent;g.lineWidth=2;g.beginPath();
+  P.forEach((p,i)=>{const x=L+i*bw+bw/2,y=T+ph-p.acum/100*ph;i?g.lineTo(x,y):g.moveTo(x,y);});g.stroke();
+  P.forEach((p,i)=>{const x=L+i*bw+bw/2,y=T+ph-p.acum/100*ph;g.fillStyle="#"+COL.accent;g.beginPath();g.arc(x,y,3.5,0,7);g.fill();});
+  g.strokeStyle="#"+COL.line;g.beginPath();g.moveTo(L,T+ph);g.lineTo(L+pw,T+ph);g.stroke();
+  // legenda
+  g.font="12px Arial";g.textAlign="left";const ly=h-12;
+  g.fillStyle="#"+COL.bad;g.fillRect(L,ly-5,10,10);g.fillStyle="#"+COL.muted;g.fillText("Tempo total (s)",L+15,ly);
+  g.strokeStyle="#"+COL.accent;g.lineWidth=2;g.beginPath();g.moveTo(L+120,ly);g.lineTo(L+140,ly);g.stroke();g.fillText("% acumulado",L+146,ly);
+  return K.c.toDataURL("image/png");
+}
+function drawRun(st,u1){
+  const pts=st.ciclos.filter(x=>Number.isFinite(x.sUn));if(pts.length<2)return null;
+  const K=canvas(1000,300);if(!K)return null;const {g,w,h}=K;
+  const L=60,R=20,T=30,B=46,pw=w-L-R,ph=h-T-B;
+  const ys=pts.map(x=>x.sUn);const ymax=niceMax(Math.max(...ys)*1.1);
+  const n=st.ciclos.length;const xOf=i=>L+(n>1?(i)/(n-1):0.5)*pw;
+  g.fillStyle="#"+COL.ink;g.font="bold 14px Arial";g.textAlign="left";g.fillText("Tempo por "+u1+" em cada ciclo (s)",L,14);
+  g.font="12px Arial";
+  for(let i=0;i<=4;i++){const y=T+ph-ph*i/4;g.strokeStyle="#E3E8EB";g.lineWidth=1;g.beginPath();g.moveTo(L,y);g.lineTo(L+pw,y);g.stroke();
+    g.fillStyle="#"+COL.muted;g.textAlign="right";g.fillText(fmtN(ymax*i/4,ymax<10?1:0),L-6,y);}
+  const yOf=v=>T+ph-v/ymax*ph;
+  const step=Math.max(1,Math.ceil(n/25));
+  st.ciclos.forEach((x,i)=>{if(i%step===0||i===n-1){g.fillStyle="#"+COL.muted;g.textAlign="center";g.fillText(String(x.n),xOf(i),T+ph+14);}});
+  g.textAlign="center";g.fillText("Ciclo",L+pw/2,T+ph+32);
+  const mean=st.amostra.mean;
+  if(Number.isFinite(mean)){g.setLineDash([6,4]);g.strokeStyle="#"+COL.accent;g.lineWidth=1.5;g.beginPath();g.moveTo(L,yOf(mean));g.lineTo(L+pw,yOf(mean));g.stroke();g.setLineDash([]);
+    g.fillStyle="#"+COL.accent;g.textAlign="right";g.font="bold 12px Arial";g.fillText("média válida "+fmtN(mean,2),L+pw,yOf(mean)-9);g.font="12px Arial";}
+  g.strokeStyle="#"+COL.band;g.lineWidth=1.5;g.beginPath();let first=true;
+  st.ciclos.forEach((x,i)=>{if(!Number.isFinite(x.sUn)){first=true;return;}const X=xOf(i),Y=yOf(x.sUn);first?g.moveTo(X,Y):g.lineTo(X,Y);first=false;});g.stroke();
+  st.ciclos.forEach((x,i)=>{if(!Number.isFinite(x.sUn))return;const X=xOf(i),Y=yOf(x.sUn);g.beginPath();g.arc(X,Y,4,0,7);
+    if(x.ncN){g.fillStyle="#"+COL.bad;g.fill();}else if(x.valido){g.fillStyle="#"+COL.band;g.fill();}else{g.fillStyle="#FFFFFF";g.fill();g.strokeStyle="#"+COL.grey;g.lineWidth=1.5;g.stroke();g.strokeStyle="#"+COL.band;}});
+  const ly=h-10;g.textAlign="left";g.fillStyle="#"+COL.band;g.beginPath();g.arc(L+5,ly,4,0,7);g.fill();g.fillStyle="#"+COL.muted;g.fillText("ciclo válido",L+14,ly);
+  g.fillStyle="#"+COL.bad;g.beginPath();g.arc(L+105,ly,4,0,7);g.fill();g.fillStyle="#"+COL.muted;g.fillText("ciclo com NC",L+114,ly);
+  g.strokeStyle="#"+COL.grey;g.lineWidth=1.5;g.beginPath();g.arc(L+215,ly,4,0,7);g.stroke();g.fillText("fora da amostra",L+224,ly);
+  return K.c.toDataURL("image/png");
+}
+
+/* ---------------- helpers de planilha ---------------- */
+function mk(ws){
+  const cell=(r,c)=>ws.getCell(r,c);
+  function range(r1,c1,r2,c2,fn){for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++)fn(cell(r,c),r,c);}
+  function put(r,c,v,st={},r2_,c2_){
+    if(r2_!=null&&(r2_!==r||c2_!==c)){ws.mergeCells(r,c,r2_,c2_);}
+    const x=cell(r,c);x.value=v;
+    if(st.font)x.font=font(st.font);else x.font=font();
+    if(st.fill)range(r,c,r2_??r,c2_??c,y=>y.fill=fill(st.fill));
+    if(st.numFmt)x.numFmt=st.numFmt;
+    x.alignment=Object.assign({vertical:"middle"},st.align||{});
+    if(st.border)range(r,c,r2_??r,c2_??c,y=>y.border=st.border);
+    return x;
+  }
+  return {cell,range,put};
+}
+function setupPage(ws,landscape,lastCol,lastRow,titulo){
+  ws.pageSetup=Object.assign(ws.pageSetup||{},{paperSize:9,orientation:landscape?"landscape":"portrait",fitToPage:true,fitToWidth:1,fitToHeight:0,
+    margins:{left:0.4,right:0.4,top:0.4,bottom:0.55,header:0.2,footer:0.25},horizontalCentered:true});
+  if(lastCol&&lastRow)ws.pageSetup.printArea="A1:"+ws.getColumn(lastCol).letter+lastRow;
+  const gen=new Date();
+  ws.headerFooter={oddFooter:"&L&\"Arial\"&8"+String(titulo).replace(/&/g,"&&")+"&C&\"Arial\"&8Gerado em "+gen.toLocaleDateString("pt-BR")+" · Cronoanálise de Campo&R&\"Arial\"&8Página &P de &N"};
+}
+const bdr={top:side(),bottom:side(),left:side(),right:side()};
+
+/* tabela genérica */
+function table(ws,r0,c0,cols,rows,opt={}){
+  const {put,cell}=mk(ws);
+  const pos=[];let cc=c0;cols.forEach(h=>{pos.push(cc);cc+=h.span||1;});
+  cols.forEach((h,i)=>put(r0,pos[i],h.t,{font:{bold:true,size:9,color:COL.white},fill:COL.band,align:{horizontal:h.al||(i?"center":"left"),wrapText:true},border:bdr},r0,pos[i]+(h.span||1)-1));
+  ws.getRow(r0).height=opt.headH||30;
+  rows.forEach((row,k)=>{
+    const r=r0+1+k;const z=opt.rowFill?opt.rowFill(k,row):(k%2?COL.zebra:null);
+    row.v.forEach((v,i)=>{
+      const col=cols[i];
+      const x=put(r,pos[i],v==null||Number.isNaN(v)?"":v,{font:Object.assign({size:9.5},row.font||{},(row.cellFont&&row.cellFont[i])||{}),
+        fill:(row.cellFill&&row.cellFill[i])||z||undefined,numFmt:col.nf,align:{horizontal:col.al||(typeof v==="number"?"right":"left"),indent:(col.al||(typeof v==="number"?"right":"left"))==="left"?1:0,wrapText:!!col.wrap,vertical:col.wrap?"top":"middle"},border:bdr},r,pos[i]+(col.span||1)-1);
+      return x;
+    });
+    if(row.h)ws.getRow(r).height=row.h;
+  });
+  return r0+rows.length;
+}
+const estH=(txt,widthChars,base=15)=>{const t=String(txt||"");if(!t)return null;const lines=t.split("\n").reduce((a,l)=>a+Math.max(1,Math.ceil(l.length/(widthChars*1.05))),0);return Math.max(base,lines*12.5+4);};
+
+/* ---------------- montagem ---------------- */
+async function build(s,ExcelJS,opts={}){
+  const st=C.stats(s),u=C.unidade(s),u1=C.sing(s);
+  const wb=new ExcelJS.Workbook();
+  wb.creator="Cronoanálise de Campo";wb.created=new Date();
+  const titulo="Cronoanálise · "+(s.nome||"estudo");
+  const charts={pareto:opts.charts===false?null:drawPareto(st),run:opts.charts===false?null:drawRun(st,u1)};
+  const dataBR=d=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d||"");return m?`${m[3]}/${m[2]}/${m[1]}`:(d||"");};
+  const P=st.cenarios.padrao,R=st.cenarios.real,G=st.cenarios.gap;
+
+  /* ===== Aba 1: Relatório (2 páginas) ===== */
+  const ws=wb.addWorksheet("Relatório",{views:[{showGridLines:false}],properties:{defaultRowHeight:16}});
+  const {put,range}=mk(ws);
+  [2,30,12,12,12,12,12,12,12,12,12,2].forEach((w,i)=>ws.getColumn(i+1).width=w);
+  const B=2,K=11;
+  const section=(row,txt)=>{put(row,B,txt,{font:{bold:true,size:11,color:COL.band}},row,K);range(row,B,row,K,c=>c.border={bottom:side(COL.accent,"medium")});ws.getRow(row).height=22;return row+1;};
+  let r;
+  ws.getRow(1).height=4;
+  put(2,B,"RELATÓRIO DE CRONOANÁLISE",{font:{bold:true,size:18,color:COL.white},fill:COL.band,align:{indent:1}},2,K);ws.getRow(2).height=34;
+  put(3,B,[s.nome,s.operacao,dataBR(s.data)].filter(Boolean).join("  ·  "),{font:{size:11,color:COL.bandSub},fill:COL.band,align:{indent:1}},3,K);ws.getRow(3).height=22;
+  range(4,B,4,K,c=>c.fill=fill(COL.accent));ws.getRow(4).height=4;
+  ws.getRow(5).height=6;
+
+  // identificação: 3 linhas × 3 pares
+  const idPairs=[["Posto / local",s.posto],["Operador",s.operador],["Turno",s.turno],
+    ["Perfil / grupo",s.perfil],["Analista",s.analista],["Unidade",u],
+    ["Pessoas",st.N],["Horas disp./dia",st.horas],["Demanda diária",st.dem>0?st.dem:"—"]];
+  const slots=[[B,B,3,4],[5,5,6,7],[8,9,10,K]];
+  idPairs.forEach(([lab,val],i)=>{
+    const row=6+Math.floor(i/3),[ls,le,vs,ve]=slots[i%3];
+    put(row,ls,lab.toUpperCase(),{font:{bold:true,size:8,color:COL.muted},fill:COL.label,align:{indent:1},border:bdr},row,le);
+    put(row,vs,val??"",{font:{size:10},numFmt:typeof val==="number"?(Number.isInteger(val)?nf0:"#,##0.0#"):undefined,align:{indent:1,horizontal:"left"},border:bdr},row,ve);
+    ws.getRow(row).height=17;
+  });
+  ws.getRow(9).height=6;
+
+  // indicadores
+  r=section(10,"INDICADORES-CHAVE");
+  const kpis=[
+    {l:"Tempo padrão por "+u1,v:r2(st.tpUn),nf:nf2,u:"segundos · ciclo médio "+fmtN(st.tpCiclo,1)+" s"},
+    {l:"Produtividade padrão",v:r2(P.prod,1),nf:nf1,u:u+"/h·h · sem NC"},
+    {l:"Produtividade real",v:r2(R.prod,1),nf:nf1,u:u+"/h·h · com NC"+(Number.isFinite(G.prodPct)&&st.nc.n?" ("+(G.prodPct>0?"+":"")+fmtN(G.prodPct,1)+"%)":""),bad:st.nc.n>0},
+    {l:"Perda em não conformidade",v:Number.isFinite(st.nc.pctObs)?st.nc.pctObs/100:"—",nf:"0.0%",u:st.nc.n+(st.nc.n===1?" ocorrência · ":" ocorrências · ")+fmtN(st.nc.total,0)+" s",bad:st.nc.n>0}];
+  [[B,B],[3,5],[6,8],[9,K]].forEach(([a,b],i)=>{const k=kpis[i];
+    put(r,a,k.l.toUpperCase(),{font:{bold:true,size:8,color:COL.muted},fill:COL.zebra,align:{indent:1}},r,b);
+    put(r+1,a,k.v??"—",{font:{bold:true,size:20,color:k.bad?COL.bad:COL.ink},fill:COL.zebra,numFmt:typeof k.v==="number"?k.nf:undefined,align:{indent:1,horizontal:"left"}},r+1,b);
+    put(r+2,a,k.u,{font:{size:8,color:COL.muted},fill:COL.zebra,align:{indent:1,vertical:"top"}},r+2,b);
+    range(r,a,r,b,c=>c.border={top:side(k.bad?COL.bad:COL.accent,"thick")});
+  });
+  ws.getRow(r).height=18;ws.getRow(r+1).height=26;ws.getRow(r+2).height=16;
+  r+=3;
+  if(st.comQ<st.completos){put(r,B,`Atenção: ${st.completos-st.comQ} ciclo(s) completo(s) sem quantidade ficaram fora da produtividade.`,{font:{size:9,italic:true,color:COL.warn}},r,K);r++;}
+  ws.getRow(r).height=6;r++;
+
+  // cenários
+  r=section(r,"CENÁRIOS: PADRÃO (SEM NC) × REAL (COM NC)");
+  const ccols=[{t:"Indicador"},{t:"Padrão",span:2,nf:nf2},{t:"Real",span:2,nf:nf2},{t:"Diferença",span:2,nf:nf2},{t:"Impacto",span:3,nf:"+0.0%;-0.0%;0.0%"}];
+  const ln=(l,a,b,nf)=>{const imp=Number.isFinite(a)&&Number.isFinite(b)&&a?b/a-1:null;const bad=imp!=null&&Math.abs(imp)>=0.0005;
+    return {v:[l,r2(a),r2(b),Number.isFinite(a)&&Number.isFinite(b)?r2(b-a):null,imp],cellFont:{1:{bold:true},4:bad?{bold:true,color:COL.bad}:{}},cellFill:{4:bad?COL.badSoft:null}};};
+  const rowsC=[ln("Tempo por "+u1+" (s)",P.un,R.un),ln("Produtividade ("+u+"/h·h)",P.prod,R.prod),ln("Capacidade da equipe/dia ("+u+")",P.capDia,R.capDia)];
+  if(st.dem>0)rowsC.push(ln("Pessoas para a demanda",P.pessoasNec,R.pessoasNec));
+  r=table(ws,r,B,ccols,rowsC,{headH:22})+1;
+  put(r,B,st.nc.n&&Number.isFinite(G.prodPct)?`As não conformidades reduzem a produtividade em ${fmtN(Math.abs(G.prodPct),1)}%: ${fmtN(Math.abs(G.capDia),0)} ${u} a menos por dia${st.dem>0&&Number.isFinite(G.pessoas)?` e ${fmtN(G.pessoas,2)} pessoa a mais para a demanda`:""}.`:"Sem não conformidades registradas: os dois cenários coincidem.",
+    {font:{size:9.5,bold:!!st.nc.n,color:st.nc.n?COL.bad:COL.muted}},r,K);ws.getRow(r).height=18;
+  r+=1;ws.getRow(r).height=8;r++;
+
+  // elementos
+  r=section(r,"TEMPOS POR ELEMENTO");
+  const situ=x=>Number.isFinite(x.nNec)?(x.n>=x.nNec?"Suficiente":`Faltam ${x.nNec-x.n} leituras`):"Leituras insuficientes";
+  const ecols=[{t:"Elemento"},{t:"Leituras",nf:nf0},{t:"Média (s)",nf:nf2},{t:"CV",nf:"0.0%"},{t:"% do ciclo",nf:"0.0%"},{t:"s por "+u1,nf:nf2},{t:"Amostra (95%, ±5%)",al:"center",span:4}];
+  const erows=st.rows.map(x=>{const sv=situ(x),ok=sv==="Suficiente";
+    return {v:[x.e.nome,x.n,r2(x.mean),Number.isFinite(x.cv)?x.cv/100:null,Number.isFinite(x.pctCiclo)?x.pctCiclo/100:null,r2(x.porUn),sv],
+      cellFill:{6:ok?COL.okSoft:COL.warnSoft},cellFont:{2:{bold:true},6:{bold:true,color:ok?COL.ok:COL.warn}}};});
+  r=table(ws,r,B,ecols,erows,{headH:24})+1;
+  {const tot=["Ciclo médio","",r2(st.tmCiclo),"",st.tmCiclo>0?1:"",r2(st.tpUn),""];let cc=B;
+    tot.forEach((v,i)=>{const sp=ecols[i].span||1;put(r,cc,v,{font:{bold:true,size:9.5},fill:COL.label,numFmt:ecols[i].nf,align:{horizontal:i?"right":"left",indent:i?0:1},border:Object.assign({},bdr,{top:side(COL.band,"medium")})},r,cc+sp-1);cc+=sp;});}
+  ws.getRow(r).height=18;
+  r+=1;ws.getRow(r).height=8;r++;
+  const a=st.amostra,okA=Number.isFinite(a.nNec)&&a.n>=a.nNec;
+  put(r,B,`Amostra: ${a.n} ciclos válidos${Number.isFinite(a.nNec)?` de ${a.nNec} necessários (95%, ±5%)`:""} · média ${fmtN(a.mean,2)} s/${u1} · CV ${fmtN(a.cv,1)}%  →  ${Number.isFinite(a.nNec)?(okA?"amostra suficiente":`faltam ${a.nNec-a.n} ciclos`):"leituras insuficientes"}`,
+    {font:{size:10,bold:true,color:okA?COL.ok:COL.warn},fill:okA?COL.okSoft:COL.warnSoft,align:{indent:1}},r,K);ws.getRow(r).height=22;  ws.getRow(r).addPageBreak();
+  r+=2;
+
+  // ---- página 2: causas ----
+  r=section(r,"NÃO CONFORMIDADES");
+  put(r,B,st.nc.n?`${st.nc.n} ${st.nc.n===1?"ocorrência":"ocorrências"} · ${fmtN(st.nc.total,1)} s · ${fmtN(st.nc.pctObs,1)}% do tempo observado · ${st.nc.ciclosAfet} de ${st.ciclos.length} ciclos afetados`:"Nenhuma não conformidade registrada neste estudo.",{font:{size:10,bold:!!st.nc.n,color:st.nc.n?COL.bad:COL.muted}},r,K);
+  ws.getRow(r).height=20;r++;
+  if(st.nc.n){
+    const tEnd=table(ws,r+1,B,[{t:"Tipo",wrap:true},{t:"Ocorr.",nf:nf0},{t:"Tempo (s)",nf:nf1},{t:"% do tempo em NC",nf:"0%"},{t:"% acumulado",nf:"0%"}],
+      st.nc.pareto.map(p=>({v:[p.tipo,p.n,r2(p.t,1),p.pct/100,p.acum/100],h:estH(p.tipo,28,16)})),{headH:28});
+    let cEnd=r;
+    if(charts.pareto){const id=wb.addImage({base64:charts.pareto,extension:"png"});ws.addImage(id,{tl:{col:6.3,row:r},ext:{width:380,height:202}});cEnd=r+9;}
+    r=Math.max(tEnd,cEnd)+1;
+  }else r++;
+
+  if(charts.run){
+    r=section(r,"TEMPO POR "+u1.toUpperCase()+" EM CADA CICLO");
+    const id=wb.addImage({base64:charts.run,extension:"png"});ws.addImage(id,{tl:{col:1.05,row:r},ext:{width:1000,height:195}});
+    r+=11;
+  }
+
+  r=section(r,"OBSERVAÇÕES");
+  const nObs=s.ciclos.reduce((n,c)=>n+(c.obs?1:0)+c.leituras.filter(l=>l.obs).length+c.ncs.filter(x=>x.obs).length,0);
+  put(r,B,s.obsGeral||"Sem observações gerais.",{font:{size:10,color:s.obsGeral?COL.ink:COL.muted},align:{wrapText:true,vertical:"top",indent:1}},r,K);
+  ws.getRow(r).height=estH(s.obsGeral,125,18)||18;r++;
+  put(r,B,nObs?`${nObs} ${nObs===1?"observação":"observações"} de campo na aba Ciclos.`:"Nenhuma observação de campo registrada.",{font:{size:9,italic:true,color:COL.muted},align:{indent:1}},r,K);r++;
+  put(r,B,`Método: tempo padrão = média das leituras válidas, com PF&D descontado nas ${fmtN(st.horas,1)} h/dia. Padrão exclui leituras com NC; real as inclui. Amostra: N' = (40·√(nΣx² − (Σx)²) / Σx)².`,{font:{size:8,color:COL.muted},align:{indent:1}},r,K);
+  setupPage(ws,true,12,r,titulo);
+
+  /* ===== Aba 2: Ciclos ===== */
+  const els=s.elementos;
+  const wc=wb.addWorksheet("Ciclos",{views:[{state:"frozen",ySplit:4,xSplit:1,showGridLines:false}]});
+  const cc2=[{t:"Ciclo",nf:nf0,al:"center"},...els.map(e=>({t:e.nome,nf:nf2})),{t:"Tempo do ciclo (s)",nf:nf2},{t:"Quantidade ("+u+")",nf:"#,##0.##"},{t:"s por "+u1,nf:nf2},{t:"NC (s)",nf:nf1},{t:"Situação",al:"center"},{t:"Observações",wrap:true}];
+  const nC=cc2.length;
+  sheetTitle(wc,"Ciclos cronometrados",`${s.nome||""} · tempos em segundos · quantidade em ${u}`,nC);
+  const crow=st.ciclos.map(x=>{
+    const c=x.c;
+    const cel=els.map(e=>{const ls=c.leituras.filter(l=>l.elId===e.id);return ls.length?r2(ls.reduce((a,l)=>a+l.t,0)):null;});
+    const obs=[];if(c.obs)obs.push(c.obs);
+    c.leituras.forEach(l=>{if(l.obs)obs.push(nomeEl(s,l.elId)+": "+l.obs);});
+    c.ncs.forEach(n=>obs.push("NC "+(n.tipo||"não classificada")+" ("+fmtN(n.t,1)+" s)"+(n.obs?": "+n.obs:"")));
+    const ff={},cf={},E=els.length;
+    els.forEach((e,i)=>{if(c.leituras.some(l=>l.elId===e.id&&C.excl(s,l))){ff[1+i]={color:COL.warn,italic:true};cf[1+i]=COL.warnSoft;}});
+    if(x.ncN)ff[E+4]={bold:true,color:COL.bad};
+    ff[E+5]=x.valido?{color:COL.ok,bold:true}:{color:COL.grey};
+    const ot=obs.join("\n");
+    return {v:[x.n,...cel,r2(x.tempo),x.q,r2(x.sUn),x.ncT?r2(x.ncT,1):null,x.valido?"Válido":(!x.completo?"Incompleto":!x.q?"Sem qtd.":"Com NC / anormal"),ot],cellFont:ff,cellFill:cf,h:estH(ot,56,18)};
+  });
+  const cEnd=table(wc,4,1,cc2,crow,{headH:36});
+  wc.getColumn(1).width=8;els.forEach((e,i)=>wc.getColumn(2+i).width=Math.max(11,Math.min(18,e.nome.length*0.55+4)));
+  [12,13,11,10,16,58].forEach((w,i)=>wc.getColumn(2+els.length+i).width=w);
+  if(st.ciclos.length){
+    const rr=cEnd+1,L=c=>wc.getColumn(c).letter;
+    for(let c=1;c<=nC;c++){const x=wc.getCell(rr,c);x.font=font({bold:true,size:9.5});x.fill=fill(COL.label);x.border=Object.assign({},bdr,{top:side(COL.band,"medium")});x.alignment={vertical:"middle",horizontal:c===1?"center":"right"};}
+    wc.getCell(rr,1).value="Média";
+    [...els.map((e,i)=>2+i),2+els.length,3+els.length,4+els.length].forEach(c=>{
+      const vals=crow.map(o=>o.v[c-1]).filter(v=>typeof v==="number");const res=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:null;
+      const x=wc.getCell(rr,c);x.value=vals.length?{formula:`IFERROR(AVERAGE(${L(c)}5:${L(c)}${cEnd}),"")`,result:r2(res)}:"";x.numFmt=cc2[c-1].nf;});
+    const cNC=5+els.length,sumT=crow.reduce((a,o)=>a+(o.v[cNC-1]||0),0);
+    wc.getCell(rr,cNC).value={formula:`SUM(${L(cNC)}5:${L(cNC)}${cEnd})`,result:r2(sumT,1)};wc.getCell(rr,cNC).numFmt=nf1;
+    wc.autoFilter={from:{row:4,column:1},to:{row:cEnd,column:nC}};
+    setupPage(wc,true,nC,rr,titulo);
+  }
+
+  /* ===== Aba 3: Não conformidades ===== */
+  const wn=wb.addWorksheet("Não conformidades",{views:[{state:"frozen",ySplit:4,showGridLines:false}]});
+  sheetTitle(wn,"Não conformidades",`${st.nc.n} ${st.nc.n===1?"ocorrência":"ocorrências"} · ${fmtN(st.nc.total,1)} s em NC`,5);
+  [34,8,30,12,60].forEach((w,i)=>wn.getColumn(i+1).width=w);
+  let nEnd=4;
+  if(st.nc.n){
+    nEnd=table(wn,4,1,[{t:"Tipo",wrap:true},{t:"Ciclo",nf:nf0,al:"center"},{t:"Elemento em andamento"},{t:"Duração (s)",nf:nf1},{t:"Observação",wrap:true}],
+      st.nc.lista.map(x=>({v:[x.tipo||"Não classificada",x.ciclo,nomeEl(s,x.elId),r2(x.t,1),x.obs||""],h:Math.max(estH(x.obs,58,16)||16,estH(x.tipo,32,16)||16)})));
+    wn.autoFilter={from:{row:4,column:1},to:{row:nEnd,column:5}};
+  }else mk(wn).put(4,1,"Nenhuma não conformidade registrada.",{font:{italic:true,color:COL.muted}},4,5);
+  setupPage(wn,false,5,nEnd,titulo);
+
+  addDadosSheets(wb,s,titulo);
+  embedStudies(wb,[s]);
+  return wb;
+}
+/* ---------------- estudo embutido (para importar no app) ---------------- */
+const EMBED="_crono";
+function embedStudies(wb,arr){
+  const ws=wb.addWorksheet(EMBED,{state:"veryHidden"});
+  const txt=JSON.stringify({app:"cronoanalise",v:1,estudos:arr});
+  ws.getCell(1,1).value="CRONO1";
+  for(let i=0,k=2;i<txt.length;i+=30000,k++)ws.getCell(k,1).value=txt.slice(i,i+30000);
+}
+async function readEmbedded(buf,ExcelJS){
+  const wb=new ExcelJS.Workbook();await wb.xlsx.load(buf);
+  const ws=wb.getWorksheet(EMBED);if(!ws||ws.getCell(1,1).value!=="CRONO1")return null;
+  let t="";for(let k=2;k<=ws.rowCount;k++){const v=ws.getCell(k,1).value;if(v==null)break;t+=typeof v==="string"?v:(v.richText?v.richText.map(x=>x.text).join(""):String(v));}
+  try{const o=JSON.parse(t);return Array.isArray(o.estudos)?o.estudos:null;}catch(e){return null;}
+}
+/* ---------------- aba Dados + tabela dinâmica ---------------- */
+const SIT_ORDER=["Válida","Com NC","Anormal","Parcial"];
+function dadosTable(s){
+  const dataBR=d=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d||"");return m?`${m[3]}/${m[2]}/${m[1]}`:(d||"");};
+  const head=["Estudo","Data","Operação","Turno","Perfil / grupo","Operador","Ciclo","Ordem","Elemento","Tempo (s)","Quantidade do ciclo","NC na leitura (s)","Tipo de NC","Situação","No cenário padrão","No cenário real","Observação"];
+  const rows=[];
+  // Uma linha por elemento em cada ciclo (marcações repetidas do mesmo elemento são somadas), como nos cálculos do app.
+  s.ciclos.forEach(c=>{
+    const seen=[];c.leituras.forEach(l=>{if(!seen.includes(l.elId))seen.push(l.elId);});
+    seen.forEach((elId,i)=>{
+      const ls=c.leituras.filter(l=>l.elId===elId);
+      const t=ls.reduce((a,l)=>a+l.t,0),nc=ls.reduce((a,l)=>a+l.nc,0);
+      const parcial=ls.some(l=>l.parcial),anormal=ls.some(l=>l.anormal);
+      const sit=parcial?"Parcial":anormal?"Anormal":nc>0?"Com NC":"Válida";
+      const tipos=[...new Set(c.ncs.filter(x=>x.elId===elId).map(x=>x.tipo||"Não classificada"))].join(", ");
+      const q=C.num(c.qtd);
+      rows.push([s.nome||"",dataBR(s.data),s.operacao||"",s.turno||"",s.perfil||"",s.operador||"",c.n,i+1,nomeEl(s,elId),r2(t),q>0?q:null,nc>0?r2(nc,1):null,nc>0?tipos:"",sit,ls.some(l=>C.excl(s,l))?"Não":"Sim",(anormal||parcial)?"Não":"Sim",ls.map(l=>l.obs).filter(Boolean).join("; ")]);
+    });
+  });
+  return {head,rows,numCols:new Set([6,7,9,10,11]),rowField:8,colField:13,dataField:9};
+}
+function addDadosSheets(wb,s,titulo){
+  const D=dadosTable(s);if(!D.rows.length)return null;
+  const wp=wb.addWorksheet("Dinâmica",{views:[{showGridLines:false}]});
+  wp.getCell(1,1).value="TABELA DINÂMICA · tempo médio por elemento (s)";wp.getCell(1,1).font=font({bold:true,size:13,color:COL.band});
+  wp.getCell(2,1).value="Colunas separam as leituras por situação. Use o painel de campos para trocar ou incluir turno, operador e tipo de NC. Fonte: aba Dados.";
+  wp.getCell(2,1).font=font({size:9,italic:true,color:COL.muted});
+  wp.getColumn(1).width=34;for(let c=2;c<=7;c++)wp.getColumn(c).width=13;
+  const wd=wb.addWorksheet("Dados",{views:[{state:"frozen",ySplit:1,showGridLines:true}]});
+  wd.addRow(D.head);
+  D.rows.forEach(r=>wd.addRow(r.map(v=>v===""?null:v)));
+  wd.getRow(1).eachCell(c=>{c.font=font({bold:true,size:9.5,color:COL.white});c.fill=fill(COL.band);c.alignment={vertical:"middle",wrapText:true};});
+  wd.getRow(1).height=30;
+  [24,11,26,12,16,16,7,7,30,10,11,11,30,11,11,11,50].forEach((w,i)=>wd.getColumn(i+1).width=w);
+  wd.getColumn(10).numFmt=nf2;wd.getColumn(12).numFmt=nf1;
+  wd.autoFilter={from:{row:1,column:1},to:{row:D.rows.length+1,column:D.head.length}};
+  setupPage(wd,true,D.head.length,D.rows.length+1,titulo);
+  return D;
+}
+const xesc=v=>String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const colLetter=n=>{let s="";while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26);}return s;};
+async function addPivot(buf,s,JSZip){
+  const D=dadosTable(s);if(!D.rows.length)return buf;
+  return pivotFromTable(buf,D,JSZip,{rowOrder:s.elementos.map(e=>e.nome)});
+}
+async function pivotFromTable(buf,D,JSZip,cfg={}){
+  const pageField=cfg.pageField!=null?cfg.pageField:null;
+  const zip=await JSZip.loadAsync(buf);
+  const wbXml=await zip.file("xl/workbook.xml").async("string");
+  const wbRels=await zip.file("xl/_rels/workbook.xml.rels").async("string");
+  const sheetTarget=name=>{const m=new RegExp('<sheet [^>]*name="'+name+'"[^>]*r:id="(rId\\d+)"').exec(wbXml);if(!m)return null;
+    const t=new RegExp('Id="'+m[1]+'"[^>]*Target="([^"]+)"').exec(wbRels)||new RegExp('Target="([^"]+)"[^>]*Id="'+m[1]+'"').exec(wbRels);return t?t[1].replace(/^\/?xl\//,""):null;};
+  const pivSheet=sheetTarget("Dinâmica");if(!pivSheet||!sheetTarget("Dados"))return buf;
+  const nF=D.head.length,nR=D.rows.length;
+  // cache: itens para colunas de texto, faixa para numéricas
+  const items=D.head.map((h,f)=>{
+    if(D.numCols.has(f))return null;
+    let vals=[...new Set(D.rows.map(r=>r[f]).filter(v=>v!==""&&v!=null))];
+    const ord=(o)=>vals.sort((a,b)=>(o.indexOf(a)+1||999)-(o.indexOf(b)+1||999));
+    if(f===D.colField)ord(cfg.colOrder||SIT_ORDER);
+    if(f===D.rowField&&cfg.rowOrder)ord(cfg.rowOrder);
+    return {vals,blank:D.rows.some(r=>r[f]===""||r[f]==null)};
+  });
+  const cacheFields=D.head.map((h,f)=>{
+    if(D.numCols.has(f)){
+      const v=D.rows.map(r=>r[f]).filter(x=>typeof x==="number");const blank=v.length<nR;
+      const ints=v.every(Number.isInteger);
+      const attrs=v.length?`containsSemiMixedTypes="0" containsString="0" containsNumber="1"${ints?' containsInteger="1"':""} minValue="${Math.min(...v)}" maxValue="${Math.max(...v)}"${blank?' containsBlank="1"':""}`:`containsBlank="1"`;
+      if(blank&&v.length)return `<cacheField name="${xesc(h)}" numFmtId="0"><sharedItems containsString="0" containsBlank="1" containsNumber="1"${ints?' containsInteger="1"':""} minValue="${Math.min(...v)}" maxValue="${Math.max(...v)}"/></cacheField>`;
+      return `<cacheField name="${xesc(h)}" numFmtId="0"><sharedItems ${attrs}/></cacheField>`;
+    }
+    const it=items[f];const cnt=it.vals.length+(it.blank?1:0);
+    return `<cacheField name="${xesc(h)}" numFmtId="0"><sharedItems${it.blank?' containsBlank="1"':""} count="${cnt}">${it.vals.map(v=>`<s v="${xesc(v)}"/>`).join("")}${it.blank?"<m/>":""}</sharedItems></cacheField>`;
+  });
+  const ref="A1:"+colLetter(nF)+(nR+1);
+  const cacheDef=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1" refreshOnLoad="1" refreshedBy="Cronoanálise de Campo" refreshedDate="45000" createdVersion="6" refreshedVersion="6" minRefreshableVersion="3" recordCount="${nR}"><cacheSource type="worksheet"><worksheetSource ref="${ref}" sheet="Dados"/></cacheSource><cacheFields count="${nF}">${cacheFields.join("")}</cacheFields></pivotCacheDefinition>`;
+  const recs=D.rows.map(r=>"<r>"+r.map((v,f)=>{
+    if(D.numCols.has(f))return typeof v==="number"?`<n v="${v}"/>`:"<m/>";
+    const it=items[f];if(v===""||v==null)return `<x v="${it.vals.length}"/>`;return `<x v="${it.vals.indexOf(v)}"/>`;
+  }).join("")+"</r>").join("");
+  const cacheRec=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotCacheRecords xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" count="${nR}">${recs}</pivotCacheRecords>`;
+  const rowIt=items[D.rowField],colIt=items[D.colField];
+  const nRow=rowIt.vals.length+(rowIt.blank?1:0),nCol=colIt.vals.length+(colIt.blank?1:0);
+  const axisItems=n=>`<items count="${n+1}">${Array.from({length:n},(_,i)=>`<item x="${i}"/>`).join("")}<item t="default"/></items>`;
+  const pf=D.head.map((h,f)=>f===D.rowField?`<pivotField axis="axisRow" showAll="0">${axisItems(nRow)}</pivotField>`
+    :f===D.colField?`<pivotField axis="axisCol" showAll="0">${axisItems(nCol)}</pivotField>`
+    :f===D.dataField?`<pivotField dataField="1" showAll="0"/>`
+    :f===pageField?`<pivotField axis="axisPage" showAll="0">${axisItems(items[f].vals.length+(items[f].blank?1:0))}</pivotField>`:`<pivotField showAll="0"/>`).join("");
+  const lineItems=n=>Array.from({length:n},(_,i)=>i?`<i><x v="${i}"/></i>`:`<i><x/></i>`).join("")+`<i t="grand"><x/></i>`;
+  const top=pageField!=null?6:4,lastCol=colLetter(1+nCol+1),lastRow=top+1+nRow+1;
+  const pivotXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" name="DinamicaTempos" cacheId="1" applyNumberFormats="0" applyBorderFormats="0" applyFontFormats="0" applyPatternFormats="0" applyAlignmentFormats="0" applyWidthHeightFormats="1" dataCaption="Valores" grandTotalCaption="Total geral" updatedVersion="6" minRefreshableVersion="3" useAutoFormatting="1" itemPrintTitles="1" createdVersion="6" indent="0" outline="1" outlineData="1" multipleFieldFilters="0"${pageField!=null?' rowPageCount="1" colPageCount="1"':""} rowHeaderCaption="${xesc(cfg.rowCaption||"Elemento")}" colHeaderCaption="${xesc(cfg.colCaption||"Situação")}"><location ref="A${top}:${lastCol}${lastRow}" firstHeaderRow="1" firstDataRow="2" firstDataCol="1"/><pivotFields count="${nF}">${pf}</pivotFields><rowFields count="1"><field x="${D.rowField}"/></rowFields><rowItems count="${nRow+1}">${lineItems(nRow)}</rowItems><colFields count="1"><field x="${D.colField}"/></colFields><colItems count="${nCol+1}">${lineItems(nCol)}</colItems>${pageField!=null?`<pageFields count="1"><pageField fld="${pageField}" item="${Math.max(0,items[pageField].vals.indexOf(cfg.pageItem))}" hier="-1"/></pageFields>`:""}<dataFields count="1"><dataField name="${xesc(cfg.dataName||"Tempo médio (s)")}" fld="${D.dataField}" subtotal="average" baseField="0" baseItem="0" numFmtId="2"/></dataFields><pivotTableStyleInfo name="PivotStyleMedium2" showRowHeaders="1" showColHeaders="1" showRowStripes="0" showColStripes="0" showLastColumn="1"/></pivotTableDefinition>`;
+  zip.file("xl/pivotCache/pivotCacheDefinition1.xml",cacheDef);
+  zip.file("xl/pivotCache/pivotCacheRecords1.xml",cacheRec);
+  zip.file("xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheRecords" Target="pivotCacheRecords1.xml"/></Relationships>`);
+  zip.file("xl/pivotTables/pivotTable1.xml",pivotXml);
+  zip.file("xl/pivotTables/_rels/pivotTable1.xml.rels",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition" Target="../pivotCache/pivotCacheDefinition1.xml"/></Relationships>`);
+  // planilha da dinâmica → tabela
+  const sName=pivSheet.split("/").pop(),relPath="xl/worksheets/_rels/"+sName+".rels";
+  const pivRel=`<Relationship Id="rIdPivot1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable" Target="../pivotTables/pivotTable1.xml"/>`;
+  const existing=zip.file(relPath)?await zip.file(relPath).async("string"):null;
+  zip.file(relPath,existing?existing.replace("</Relationships>",pivRel+"</Relationships>"):`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${pivRel}</Relationships>`);
+  // workbook → cache
+  zip.file("xl/_rels/workbook.xml.rels",wbRels.replace("</Relationships>",`<Relationship Id="rIdPivotCache1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition" Target="pivotCache/pivotCacheDefinition1.xml"/></Relationships>`));
+  const pc=`<pivotCaches><pivotCache cacheId="1" r:id="rIdPivotCache1"/></pivotCaches>`;
+  let w2=wbXml;
+  if(/<calcPr[^>]*\/>/.test(w2))w2=w2.replace(/(<calcPr[^>]*\/>)/,"$1"+pc);
+  else if(w2.includes("</calcPr>"))w2=w2.replace("</calcPr>","</calcPr>"+pc);
+  else if(w2.includes("<extLst"))w2=w2.replace("<extLst",pc+"<extLst");
+  else w2=w2.replace("</workbook>",pc+"</workbook>");
+  zip.file("xl/workbook.xml",w2);
+  const ct=await zip.file("[Content_Types].xml").async("string");
+  zip.file("[Content_Types].xml",ct.replace("</Types>",
+    `<Override PartName="/xl/pivotCache/pivotCacheDefinition1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml"/><Override PartName="/xl/pivotCache/pivotCacheRecords1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml"/><Override PartName="/xl/pivotTables/pivotTable1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml"/></Types>`));
+  return zip.generateAsync({type:"arraybuffer",compression:"DEFLATE"});
+}
+
+function nomeEl(s,id){const e=s.elementos.find(x=>x.id===id);return e?e.nome:"(elemento removido)";}
+function sheetTitle(ws,t,sub,ncols){
+  const {put,range}=mk(ws);
+  put(1,1,t.toUpperCase(),{font:{bold:true,size:14,color:COL.white},fill:COL.band,align:{indent:1}},1,ncols);ws.getRow(1).height=28;
+  put(2,1,sub,{font:{size:9.5,color:COL.bandSub},fill:COL.band,align:{indent:1}},2,ncols);ws.getRow(2).height=18;
+  range(3,1,3,ncols,c=>c.fill=fill(COL.accent));ws.getRow(3).height=3;
+}
+return {build,embedStudies,readEmbedded,addPivot,pivotFromTable,dadosTable,addDadosSheets,drawPareto,drawRun,mk,table,setupPage,sheetTitle,estH,COL,font,fill,side,bdr,nf0,nf1,nf2,r2,fmtN};
+})();
+
+</script>
+<script>
+window.CronoConsol=(function(){
+const GRUPOS=[["estudo","Estudo",0],["turno","Turno",3],["perfil","Perfil / grupo",4],["data","Data",1],["operador","Operador",5]];
+const dataBR=d=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d||"");return m?`${m[3]}/${m[2]}/${m[1]}`:(d||"");};
+function labelOf(s,g){
+  const v=g==="estudo"?s.nome:g==="data"?dataBR(s.data):s[g];
+  return String(v||"").trim()||({turno:"(sem turno)",perfil:"(sem perfil)",operador:"(sem operador)",data:"(sem data)",estudo:"(sem nome)"})[g];
+}
+// Junta vários estudos num só: elementos casados pelo nome, ciclos em sequência.
+function merge(list,nome){
+  const C=window.CronoCore;
+  const base=JSON.parse(JSON.stringify(list[0]));
+  const m=Object.assign(base,{id:"g_"+nome,nome,ciclos:[],elementos:[]});
+  const byName={};
+  list.forEach(s=>s.elementos.forEach(e=>{const k=e.nome.trim();if(!byName[k]){byName[k]={id:"g"+m.elementos.length,nome:k};m.elementos.push(byName[k]);}}));
+  list.forEach(s=>{const map={};s.elementos.forEach(e=>map[e.id]=byName[e.nome.trim()].id);
+    s.ciclos.forEach(c=>m.ciclos.push(Object.assign({},c,{n:m.ciclos.length+1,
+      leituras:c.leituras.map(l=>Object.assign({},l,{elId:map[l.elId]||l.elId})),
+      ncs:c.ncs.map(x=>Object.assign({},x,{elId:map[x.elId]||x.elId}))})));});
+  return C.normalize(m);
+}
+function groups(studies,g){
+  const out=[];studies.forEach(s=>{const lab=labelOf(s,g);let x=out.find(y=>y.lab===lab);if(!x){x={lab,list:[]};out.push(x);}x.list.push(s);});
+  if(g==="data"||g==="estudo")out.sort((a,b)=>String(a.list[0].data||"").localeCompare(String(b.list[0].data||""))||a.lab.localeCompare(b.lab,"pt-BR",{numeric:true}));
+  else out.sort((a,b)=>a.lab.localeCompare(b.lab,"pt-BR",{numeric:true}));
+  return out;
+}
+// Avisos antes de consolidar
+function check(studies){
+  const C=window.CronoCore,w=[];
+  const us=[...new Set(studies.map(s=>C.unidade(s)))];if(us.length>1)w.push("Unidades diferentes ("+us.join(", ")+"): os tempos por unidade não são comparáveis.");
+  const ops=[...new Set(studies.map(s=>String(s.operacao||"").trim()).filter(Boolean))];if(ops.length>1)w.push("Operações diferentes: "+ops.join(", ")+".");
+  const els=[...new Set(studies.map(s=>s.elementos.map(e=>e.nome.trim()).join("|")))];if(els.length>1)w.push("Os elementos não são iguais em todos os estudos. Elementos com o mesmo nome são somados; ciclos sem algum elemento contam como incompletos.");
+  const par=[...new Set(studies.map(s=>[s.pessoas,s.horasDia].join("/")))];if(par.length>1)w.push("Pessoas ou horas por dia diferentes: o consolidado usa os do primeiro estudo de cada grupo.");
+  return w;
+}
+async function build(studies,ExcelJS,JSZip,opts={}){
+  const C=window.CronoCore,R=window.CronoReport;
+  const {mk,table,setupPage,sheetTitle,estH,COL,font,fill,side,bdr,nf0,nf1,nf2,r2,fmtN}=R;
+  const g=opts.groupBy||"estudo",gDef=GRUPOS.find(x=>x[0]===g)||GRUPOS[0];
+  const studyLab=s=>labelOf(s,g);
+  const G=groups(studies,g);
+  const S=G.map(x=>{const s=x.list.length>1?merge(x.list,x.lab):x.list[0];return {s,st:C.stats(s),lab:x.lab,n:x.list.length};});
+  const two=S.length===2;
+  if(S.length>1){const s=merge(studies,"Total");S.push({s,st:C.stats(s),lab:"Total",n:studies.length,total:true});}
+  const u=C.unidade(studies[0]),u1=C.sing(studies[0]);
+  const wb=new ExcelJS.Workbook();wb.creator="Cronoanálise de Campo";wb.created=new Date();
+  const titulo="Consolidado de cronoanálises";
+
+  /* ===== Comparativo ===== */
+  const ws=wb.addWorksheet("Comparativo",{views:[{showGridLines:false}]});
+  const {put,range}=mk(ws);
+  const nS=S.length,B=2,K=Math.max(B+7,B+1+nS*2+(two?2:0)-1);
+  ws.getColumn(1).width=2;ws.getColumn(B).width=36;for(let c=B+1;c<=K;c++)ws.getColumn(c).width=12.5;ws.getColumn(K+1).width=2;
+  const section=(row,txt)=>{put(row,B,txt,{font:{bold:true,size:11,color:COL.band}},row,K);range(row,B,row,K,c=>c.border={bottom:side(COL.accent,"medium")});ws.getRow(row).height=22;return row+1;};
+  const datas=studies.map(x=>x.data).filter(Boolean).sort();
+  ws.getRow(1).height=4;
+  put(2,B,"CONSOLIDADO DE CRONOANÁLISES",{font:{bold:true,size:18,color:COL.white},fill:COL.band,align:{indent:1}},2,K);ws.getRow(2).height=34;
+  const ops=[...new Set(studies.map(x=>x.operacao).filter(Boolean))].join(" · ");
+  put(3,B,`${studies.length} estudos · por ${gDef[1].toLowerCase()}${ops?" · "+ops:""} · ${dataBR(datas[0])}${datas.length>1&&datas[0]!==datas[datas.length-1]?" a "+dataBR(datas[datas.length-1]):""}`,{font:{size:11,color:COL.bandSub},fill:COL.band,align:{indent:1}},3,K);ws.getRow(3).height=22;
+  range(4,B,4,K,c=>c.fill=fill(COL.accent));ws.getRow(4).height=4;
+  let r=6;
+
+  // tabela comparativa
+  r=section(r,"COMPARATIVO DOS ESTUDOS");
+  const cols=[{t:"Indicador"},...S.map(x=>({t:x.lab,span:2,al:"right"}))];
+  if(two)cols.push({t:S[1].lab+" × "+S[0].lab,span:2,al:"right"});
+  const rel=(a,b)=>Number.isFinite(a)&&Number.isFinite(b)&&a?b/a-1:null;
+  const txt=(l,f)=>({v:[l,...S.map(f),...(two?[""]:[])],kind:"txt"});
+  const numRow=(l,f,nf,{pct=false,goodUp=true}={})=>{const vals=S.map(f);const row={v:[l,...vals.map(v=>Number.isFinite(v)?(pct?v:r2(v,nf===nf1?1:2)):null)],nf};
+    if(two){const d=rel(vals[0],vals[1]);row.v.push(d);row.diff=d;row.goodUp=goodUp;}return row;};
+  const rows=[
+    {v:["Estudos",...S.map(x=>x.n),...(two?[""]:[])]},
+    {v:["Ciclos (válidos / total)",...S.map(x=>`${x.st.amostra.n} / ${x.st.ciclos.length}`),...(two?[""]:[])]},
+    numRow(`Tempo padrão por ${u1} (s)`,x=>x.st.cenarios.padrao.un,nf2,{goodUp:false}),
+    numRow(`Tempo real por ${u1} (s)`,x=>x.st.cenarios.real.un,nf2,{goodUp:false}),
+    numRow(`Produtividade padrão (${u}/h·h)`,x=>x.st.cenarios.padrao.prod,nf1),
+    numRow(`Produtividade real (${u}/h·h)`,x=>x.st.cenarios.real.prod,nf1),
+    numRow(`Capacidade/dia padrão (${u})`,x=>x.st.cenarios.padrao.capDia,nf0),
+    numRow(`Capacidade/dia real (${u})`,x=>x.st.cenarios.real.capDia,nf0),
+    numRow("Impacto das NC na produtividade",x=>x.st.cenarios.gap.prodPct/100,"+0.0%;-0.0%;0.0%",{pct:true,goodUp:true}),
+    numRow("Tempo perdido em NC (% do observado)",x=>x.st.nc.pctObs/100,"0.0%",{pct:true,goodUp:false}),
+    numRow("Ciclos com NC (%)",x=>x.st.nc.pctCiclos/100,"0%",{pct:true,goodUp:false}),
+    numRow(`CV do tempo por ${u1}`,x=>x.st.amostra.cv/100,"0.0%",{pct:true,goodUp:false}),
+    {v:["Amostra (95%, ±5%)",...S.map(x=>{const a=x.st.amostra;return Number.isFinite(a.nNec)?(a.n>=a.nNec?"Suficiente":`Faltam ${a.nNec-a.n} ciclos`):"Insuficiente";}),...(two?[""]:[])],amostra:true}
+  ];
+  // cabeçalho
+  {let cc=B;cols.forEach((h,i)=>{put(r,cc,h.t,{font:{bold:true,size:9.5,color:COL.white},fill:COL.band,align:{horizontal:i?"center":"left",indent:i?0:1,wrapText:true},border:bdr},r,cc+(h.span||1)-1);cc+=h.span||1;});ws.getRow(r).height=24;r++;}
+  rows.forEach((row,k)=>{
+    let cc=B;const z=k%2?COL.zebra:null;
+    row.v.forEach((v,i)=>{
+      const span=i?2:1;let f={size:9.5},fl=z,nf=undefined,al={horizontal:i?"right":"left",indent:i?1:1};
+      if(i>0&&i<=nS){nf=typeof v==="number"?row.nf:undefined;if(row.kind==="txt"||typeof v==="string")al.horizontal="center";if(row.nf&&/Produtividade/.test(row.v[0]))f.bold=true;}
+      if(row.amostra&&i>0&&i<=nS){const ok=v==="Suficiente";f={size:9.5,bold:true,color:ok?COL.ok:COL.warn};fl=ok?COL.okSoft:COL.warnSoft;al.horizontal="center";}
+      if(two&&i===nS+1){nf="+0.0%;-0.0%;0.0%";
+        if(/^(Impacto|Tempo perdido|Ciclos com|CV)/.test(row.v[0]))v=null;
+        if(typeof v==="number"&&Math.abs(v)>=0.0005){const good=(v>0)===row.goodUp;f={size:9.5,bold:true,color:good?COL.ok:COL.bad};fl=good?COL.okSoft:COL.badSoft;}}
+      put(r,cc,v==null?"":v,{font:f,fill:fl||undefined,numFmt:nf,align:al,border:bdr},r,cc+span-1);cc+=span;
+    });
+    ws.getRow(r).height=18;r++;
+  });
+  {const notas=[];if(S.length>2||S.some(x=>x.total))notas.push("Total = todos os ciclos dos estudos juntos (média ponderada pelos ciclos observados).");
+    if(two)notas.push(`Diferença: variação de ${S[1].lab} em relação a ${S[0].lab}. Verde = melhor, vermelho = pior.`);
+    if(notas.length){put(r,B,notas.join(" "),{font:{size:8.5,italic:true,color:COL.muted},align:{wrapText:true}},r,K);ws.getRow(r).height=estH(notas.join(" "),120,14);}}
+  r+=2;
+  // estudos incluídos
+  r=section(r,"ESTUDOS INCLUÍDOS");
+  {const inc=studies.map(s=>{const st=C.stats(s);return {v:[s.nome,dataBR(s.data),s.turno||"",s.operador||"",s.perfil||"",`${st.amostra.n} / ${st.ciclos.length}`,r2(st.cenarios.padrao.prod,1),r2(st.cenarios.real.prod,1)],h:estH(s.nome,34,18)};});
+   const iEnd=table(ws,r,B,[{t:"Estudo",wrap:true},{t:"Data",al:"center"},{t:"Turno",al:"center"},{t:"Operador"},{t:"Perfil"},{t:"Ciclos válidos / total",al:"center"},{t:"Prod. padrão",nf:nf1},{t:"Prod. real",nf:nf1}],inc,{headH:30});
+   r=iEnd+2;}
+
+  // elementos
+  ws.getRow(r-1).addPageBreak();r+=1;
+  r=section(r,"TEMPO MÉDIO POR ELEMENTO (s) · PADRÃO SEM NC E REAL COM NC");
+  const elNames=[];S.forEach(x=>x.s.elementos.forEach(e=>{if(!elNames.includes(e.nome.trim()))elNames.push(e.nome.trim());}));
+  {let cc=B;put(r,cc,"Elemento",{font:{bold:true,size:9.5,color:COL.white},fill:COL.band,align:{indent:1},border:bdr},r+1,cc);cc++;
+    S.forEach(x=>{put(r,cc,x.lab,{font:{bold:true,size:9.5,color:COL.white},fill:COL.band,align:{horizontal:"center"},border:bdr},r,cc+1);
+      put(r+1,cc,"Padrão",{font:{bold:true,size:8.5,color:COL.white},fill:COL.band,align:{horizontal:"center"},border:bdr});
+      put(r+1,cc+1,"Real",{font:{bold:true,size:8.5,color:COL.white},fill:COL.band,align:{horizontal:"center"},border:bdr});cc+=2;});
+    if(two){put(r,cc,"Real − padrão (s)",{font:{bold:true,size:9.5,color:COL.white},fill:COL.band,align:{horizontal:"center"},border:bdr},r,cc+1);
+      put(r+1,cc,S[0].lab,{font:{bold:true,size:8.5,color:COL.white},fill:COL.band,align:{horizontal:"center"},border:bdr});
+      put(r+1,cc+1,S[1].lab,{font:{bold:true,size:8.5,color:COL.white},fill:COL.band,align:{horizontal:"center"},border:bdr});}
+    r+=2;}
+  const elRow=(nome,get,bold)=>{let cc=B;const z=bold?COL.label:null;
+    put(r,cc,nome,{font:{size:9.5,bold},fill:z||undefined,align:{indent:1},border:bdr});cc++;
+    const pr=S.map(x=>get(x));
+    pr.forEach(([p,q])=>{put(r,cc,r2(p),{font:{size:9.5,bold:true},fill:z||undefined,numFmt:nf2,align:{horizontal:"right"},border:bdr});put(r,cc+1,r2(q),{font:{size:9.5,bold},fill:z||undefined,numFmt:nf2,align:{horizontal:"right"},border:bdr});cc+=2;});
+    if(two)pr.slice(0,2).forEach(([p,q])=>{const d=Number.isFinite(p)&&Number.isFinite(q)?q-p:null;put(r,cc,d==null?"":r2(d),{font:{size:9.5,bold:true,color:d>0.005?COL.bad:COL.ink},fill:z||(d>0.005?COL.badSoft:undefined),numFmt:"+#,##0.00;-#,##0.00;0.00",align:{horizontal:"right"},border:bdr});cc++;});
+    ws.getRow(r).height=18;r++;};
+  elNames.forEach(n=>elRow(n,x=>{const row=x.st.rows.find(y=>y.e.nome.trim()===n);return row?[row.mean,row.meanReal]:[NaN,NaN];}));
+  elRow("Ciclo médio",x=>[x.st.cenarios.padrao.ciclo,x.st.cenarios.real.ciclo],true);
+  r+=1;
+
+  // NC consolidado
+  ws.getRow(r-1).addPageBreak();
+  r+=1;
+  r=section(r,"NÃO CONFORMIDADES · CONSOLIDADO");
+  const SG=S.filter(x=>!x.total);const tipos={};SG.forEach((x,i)=>x.st.nc.lista.forEach(n=>{const k=n.tipo||"Não classificada";(tipos[k]=tipos[k]||{tipo:k,por:SG.map(()=>0),n:0,t:0});tipos[k].por[i]+=n.t;tipos[k].n++;tipos[k].t+=n.t;}));
+  const tot=Object.values(tipos).reduce((a,x)=>a+x.t,0);let acc=0;
+  const par=Object.values(tipos).sort((a,b)=>b.t-a.t).map(p=>{acc+=p.t;return Object.assign(p,{pct:tot?p.t/tot*100:0,acum:tot?acc/tot*100:0,media:p.t/p.n});});
+  const totN=par.reduce((a,p)=>a+p.n,0);
+  put(r,B,`${totN} ocorrências · ${fmtN(tot,1)} s em NC nos ${studies.length} estudos`,{font:{size:10,bold:true,color:COL.bad}},r,K);ws.getRow(r).height=20;r++;
+  const comuns=par.filter(p=>p.por.every(v=>v>0)).map(p=>p.tipo);
+  if(comuns.length){put(r,B,`Presente em todos os estudos: ${comuns.join("; ")}.`,{font:{size:9.5,color:COL.ink},align:{wrapText:true}},r,K);ws.getRow(r).height=estH(comuns.join("; "),110,18);r++;}
+  r++;
+  const ncCols=[{t:"Tipo",wrap:true},...SG.map(x=>({t:x.lab+" (s)",nf:nf1})),{t:"Total (s)",nf:nf1},{t:"Ocorr.",nf:nf0},{t:"% acumulado",nf:"0%"}];
+  const tEnd=table(ws,r,B,ncCols,par.map(p=>({v:[p.tipo,...p.por.map(v=>v?r2(v,1):null),r2(p.t,1),p.n,p.acum/100],cellFont:{[SG.length+1]:{bold:true}},h:estH(p.tipo,34,16)})),{headH:28});
+  r=tEnd+2;
+  const fake={nc:{pareto:par}};
+  const img=R.drawPareto(fake);
+  if(img){const id=wb.addImage({base64:img,extension:"png"});ws.addImage(id,{tl:{col:B-1+0.05,row:r-1},ext:{width:560,height:298}});r+=16;}
+    setupPage(ws,true,K+1,r,titulo);
+
+  /* ===== Ciclos ===== */
+  const wc=wb.addWorksheet("Ciclos",{views:[{state:"frozen",ySplit:4,showGridLines:false}]});
+  const ccols=[{t:"Estudo"},{t:gDef[1]},{t:"Ciclo",nf:nf0,al:"center"},...elNames.map(n=>({t:n,nf:nf2})),{t:"Tempo do ciclo (s)",nf:nf2},{t:"Quantidade ("+u+")",nf:"#,##0.##"},{t:"s por "+u1,nf:nf2},{t:"NC (s)",nf:nf1},{t:"Situação",al:"center"},{t:"Observações",wrap:true}];
+  sheetTitle(wc,"Ciclos cronometrados · todos os estudos","tempos em segundos · quantidade em "+u,ccols.length);
+  const crows=[];
+  studies.map(s=>({s,st:C.stats(s),lab:studyLab(s)})).forEach(x=>x.st.ciclos.forEach(y=>{const c=y.c;
+    const cel=elNames.map(n=>{const e=x.s.elementos.find(e=>e.nome.trim()===n);if(!e)return null;const ls=c.leituras.filter(l=>l.elId===e.id);return ls.length?r2(ls.reduce((a,l)=>a+l.t,0)):null;});
+    const nm=id=>{const e=x.s.elementos.find(e=>e.id===id);return e?e.nome.trim():"";};
+    const obs=[];if(c.obs)obs.push(c.obs);c.leituras.forEach(l=>{if(l.obs)obs.push(nm(l.elId)+": "+l.obs);});
+    c.ncs.forEach(n=>obs.push("NC "+(n.tipo||"não classificada")+" ("+fmtN(n.t,1)+" s)"+(n.obs?": "+n.obs:"")));
+    const ot=obs.join("\n"),E=elNames.length;
+    crows.push({v:[x.s.nome,x.lab,y.n,...cel,r2(y.tempo),y.q,r2(y.sUn),y.ncT?r2(y.ncT,1):null,y.valido?"Válido":(!y.completo?"Incompleto":!y.q?"Sem qtd.":"Com NC / anormal"),ot],
+      cellFont:{[E+6]:y.ncN?{bold:true,color:COL.bad}:{},[E+7]:y.valido?{bold:true,color:COL.ok}:{color:COL.grey}},h:estH(ot,56,18)});}));
+  const cEnd=table(wc,4,1,ccols,crows,{headH:34});
+  [30,12,7,...elNames.map(()=>13),12,12,11,10,16,58].forEach((w,i)=>wc.getColumn(i+1).width=w);
+  wc.autoFilter={from:{row:4,column:1},to:{row:cEnd,column:ccols.length}};
+  setupPage(wc,true,ccols.length,cEnd,titulo);
+
+  /* ===== Não conformidades ===== */
+  const wn=wb.addWorksheet("Não conformidades",{views:[{state:"frozen",ySplit:4,showGridLines:false}]});
+  sheetTitle(wn,"Não conformidades · todos os estudos",`${totN} ocorrências · ${fmtN(tot,1)} s`,7);
+  const nrows=[];studies.map(s=>({s,st:C.stats(s),lab:studyLab(s)})).forEach(x=>x.st.nc.lista.forEach(n=>{const e=x.s.elementos.find(e=>e.id===n.elId);nrows.push({v:[x.s.nome,x.lab,n.tipo||"Não classificada",n.ciclo,e?e.nome.trim():"",r2(n.t,1),n.obs||""],h:Math.max(estH(n.obs,50,16)||16,estH(n.tipo,30,16)||16)});}));
+  const nEnd=table(wn,4,1,[{t:"Estudo"},{t:gDef[1]},{t:"Tipo",wrap:true},{t:"Ciclo",nf:nf0,al:"center"},{t:"Elemento"},{t:"Duração (s)",nf:nf1},{t:"Observação",wrap:true}],nrows);
+  [30,12,32,7,16,11,52].forEach((w,i)=>wn.getColumn(i+1).width=w);
+  wn.autoFilter={from:{row:4,column:1},to:{row:nEnd,column:7}};
+  setupPage(wn,true,7,nEnd,titulo);
+
+  /* ===== Dinâmica + Dados ===== */
+  const D={head:null,rows:[]};
+  studies.forEach(s=>{const d=R.dadosTable(s);D.head=d.head;D.numCols=d.numCols;D.dataField=d.dataField;D.rowField=d.rowField;d.rows.forEach(row=>{row[8]=String(row[8]).trim();row[gDef[2]]=studyLab(s);D.rows.push(row);});});
+  D.colField=gDef[2];
+  const wp=wb.addWorksheet("Dinâmica",{views:[{showGridLines:false}]});
+  wp.getCell(1,1).value="TABELA DINÂMICA · tempo médio por elemento e "+gDef[1].toLowerCase()+" (s)";wp.getCell(1,1).font=font({bold:true,size:13,color:COL.band});
+  wp.getCell(2,1).value="Filtro “No cenário padrão = Sim” mostra a capacidade do processo; troque para “(Tudo)” ou “Não” para ver o efeito das NC.";
+  wp.getCell(2,1).font=font({size:9,italic:true,color:COL.muted});
+  wp.getColumn(1).width=34;for(let c=2;c<=6;c++)wp.getColumn(c).width=14;
+  const wd=wb.addWorksheet("Dados",{views:[{state:"frozen",ySplit:1}]});
+  wd.addRow(D.head);D.rows.forEach(row=>wd.addRow(row.map(v=>v===""?null:v)));
+  wd.getRow(1).eachCell(c=>{c.font=font({bold:true,size:9.5,color:COL.white});c.fill=fill(COL.band);c.alignment={vertical:"middle",wrapText:true};});
+  wd.getRow(1).height=30;[30,11,20,12,16,12,7,7,16,10,11,11,30,11,11,11,50].forEach((w,i)=>wd.getColumn(i+1).width=w);
+  wd.getColumn(10).numFmt=nf2;wd.autoFilter={from:{row:1,column:1},to:{row:D.rows.length+1,column:D.head.length}};
+
+  R.embedStudies(wb,studies);
+  let buf=await wb.xlsx.writeBuffer();
+  if(D.rows.length&&JSZip){try{buf=await R.pivotFromTable(buf,D,JSZip,{rowOrder:elNames,colOrder:G.map(x=>x.lab),colCaption:gDef[1],pageField:14,pageItem:"Sim"});}catch(e){console.error("tabela dinâmica",e);}}
+  return buf;
+}
+return {GRUPOS,labelOf,merge,groups,check,build};
+})();
+
+</script>
+<script>
+(function(){
+"use strict";
+const C=window.CronoCore,PWA=!!window.CRONO_PWA,VERSAO="3.0";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
+const fmt=(n,d=2)=>Number.isFinite(n)?n.toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d}):"–";
+const fmtClock=ms=>{const t=Math.max(0,ms)/1000;const m=Math.floor(t/60);const s=t-m*60;return String(m).padStart(2,"0")+":"+s.toFixed(2).padStart(5,"0");};
+const fmtQ=v=>v==null?"":String(v).replace(".",",");
+const today=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);};
+const dataBR=d=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d||"");return m?`${m[3]}/${m[2]}/${m[1]}`:(d||"");};
+
+/* ---------- ícones ---------- */
+const I={
+  list:'<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  merge:'<path d="M6 3v6a6 6 0 0 0 6 6h6M18 15l-3-3M18 15l-3 3M6 21v-6"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  doc:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+  timer:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9.5 2h5M12 2v3"/>',
+  chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  back:'<path d="M15 18l-6-6 6-6"/>',
+  chev:'<path d="M9 18l6-6-6-6"/>',
+  check:'<path d="M20 6L9 17l-5-5"/>',
+  share:'<path d="M12 3v13M7 8l5-5 5 5M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/>',
+  down:'<path d="M12 3v13M7 11l5 5 5-5M5 21h14"/>'
+};
+const ic=(n,sz=22)=>`<svg class="ic" width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+
+/* ---------- estado ---------- */
+let studies={},curId=null,view="home",homeTab="estudos",tab="estudo",store=null,confirmDel=false,showAll=false,confirmEnd=null,ncAdding=false;
+let busca="",consolSel=new Set(),consolBy="turno",installEvt=null,swWaiting=null;
+let cfg={tiposNC:C.NC_PADRAO.slice()};
+const drafts={obs:"",qty:""};
+// Linha do tempo ativa (relógio do sistema): só avança com um ciclo rodando.
+const timer={running:false,runStart:0,actAcc:0,lapStart:0,cycleStart:0,elIdx:0,cycle:null,nc:null,ncLog:[],undo:[],lastClosed:null};
+let wakeLock=null;
+
+function blankStudy(nome){
+  return C.normalize({id:uid(),nome:nome||"Novo estudo",operacao:"",posto:"",turno:"",perfil:"",operador:"",analista:"",data:today(),
+    obsGeral:"",unidade:"peças",pessoas:1,demanda:"",horasDia:6.3,ncExclui:true,
+    elementos:[{id:uid(),nome:"Elemento 1"}],ciclos:[],atualizado:Date.now()});
+}
+function duplicateStudy(s){
+  const d=blankStudy(s.nome+" (cópia)");
+  ["operacao","posto","turno","perfil","analista","unidade","unidadeOutra","pessoas","demanda","horasDia","ncExclui"].forEach(k=>d[k]=s[k]);
+  d.elementos=s.elementos.map(e=>({id:uid(),nome:e.nome}));
+  return d;
+}
+function exampleStudy(){
+  const s=blankStudy("Exemplo · Embalagem de peças");
+  s.operacao="Embalagem de peças em caixas";s.posto="Linha 2 · bancada de embalagem";s.turno="1º turno";s.perfil="Peças pequenas";s.operador="Operador A";s.demanda=3000;
+  s.obsGeral="Estudo fictício para conhecer o app. Caixas com 8 a 16 peças.";
+  s.elementos=["Pegar e montar a caixa","Separar e embalar as peças","Fechar e etiquetar","Levar ao palete"].map(n=>({id:uid(),nome:n}));
+  let seed=11;const rnd=()=>{seed=(seed*9301+49297)%233280;return seed/233280;};
+  [10,12,8,14,10,16,9,12,11,13,10,12].forEach((q,c)=>{
+    const base=[7.5,2.4*q,9.5,6];
+    const leit=s.elementos.map((e,i)=>({elId:e.id,t:+(base[i]*(0.9+rnd()*0.2)).toFixed(2),obs:"",anormal:false,nc:0}));
+    const cyc={n:c+1,leituras:leit,qtd:q,obs:"",ncs:[]};
+    const addNC=(i,t,tipo,obs)=>{leit[i].t=+(leit[i].t+t).toFixed(2);leit[i].nc=t;cyc.ncs.push({id:uid(),tipo,t,obs,elId:s.elementos[i].id});};
+    if(c===3)addNC(0,24.5,"Falta de material","Acabaram as caixas na bancada");
+    if(c===6)addNC(2,31.2,"Sistema ou máquina parada","Impressora de etiquetas travou");
+    if(c===8)addNC(1,18.3,"Falta de equipamento ou ferramenta","Foi buscar fita adesiva");
+    if(c===10)addNC(2,12.4,"Sistema ou máquina parada","");
+    if(c===1)leit[3].obs="Palete cheio, aguardou troca";
+    s.ciclos.push(cyc);
+  });
+  return C.normalize(s);
+}
+const cur=()=>studies[curId]||null;
+const usedValues=k=>[...new Set(Object.values(studies).map(s=>String(s[k]||"").trim()).filter(Boolean))];
+
+/* ---------- persistência ---------- */
+const LS="cronoanalise.v1",LSC="cronoanalise.cfg",LST="cronoanalise.timer";
+function lsAll(){try{return JSON.parse(localStorage.getItem(LS)||"{}")}catch(e){return{}}}
+function lsSet(all){try{localStorage.setItem(LS,JSON.stringify(all));return true}catch(e){return false}}
+const saveTimers={};
+function scheduleSave(s){s.atualizado=Date.now();setSave("Salvando…");clearTimeout(saveTimers[s.id]);saveTimers[s.id]=setTimeout(()=>{delete saveTimers[s.id];persist(s);},700);}
+function flushSaves(){Object.keys(saveTimers).forEach(id=>{clearTimeout(saveTimers[id]);delete saveTimers[id];if(studies[id])persist(studies[id]);});}
+let writing=Promise.resolve();
+function persist(s){
+  writing=writing.then(async()=>{
+    try{
+      if(store&&store.kind==="db"){await store.col.doc(s.id).set(JSON.parse(JSON.stringify(s)));setSave("Salvo");}
+      else{const all=lsAll();all[s.id]=s;setSave(lsSet(all)?"Salvo":"Sem espaço para salvar");}
+    }catch(e){setSave(e&&e.code==="quota_exceeded"?"Espaço cheio":"Falha ao salvar");}
+  });
+  return writing;
+}
+function saveCfg(){
+  writing=writing.then(async()=>{
+    try{if(store&&store.kind==="db")await store.col.doc("config").set({tiposNC:cfg.tiposNC.slice()});
+      else localStorage.setItem(LSC,JSON.stringify(cfg));}catch(e){}
+  });
+}
+async function removeStudy(id){
+  delete studies[id];consolSel.delete(id);
+  try{if(store&&store.kind==="db")await store.col.doc(id).delete();else{const all=lsAll();delete all[id];lsSet(all);}}catch(e){}
+}
+let saveTxt="";
+function setSave(t){saveTxt=t;const el=$("#saveState");if(el)el.textContent=t;}
+function mergeCfg(saved){
+  if(saved&&Array.isArray(saved.tiposNC)&&saved.tiposNC.length){cfg.tiposNC=saved.tiposNC.slice();return false;}
+  const set=C.NC_PADRAO.slice();
+  Object.values(studies).forEach(s=>s.ciclos.forEach(c=>c.ncs.forEach(n=>{if(n.tipo&&!set.includes(n.tipo))set.push(n.tipo);})));
+  cfg.tiposNC=set;return true;
+}
+async function initStore(){
+  let db=null,user=null,id=null,saved=null;
+  if(!PWA){try{[db,user]=await Promise.all([window.claude?.use?.("db"),window.claude?.use?.("user")]);}catch(e){}}
+  if(db&&user){try{id=await user.id();}catch(e){}}
+  if(db&&id){
+    const col=db.collection("data/users/"+id);
+    store={kind:"db",col};
+    try{
+      const snap=await col.get();
+      snap.docs.forEach(d=>{const v=d.data();if(d.id==="config"){saved=v;return;}if(v&&v.id)studies[v.id]=C.normalize(JSON.parse(JSON.stringify(v)));});
+      const local=lsAll();
+      for(const k in local){if(!studies[k]){studies[k]=C.normalize(local[k]);persist(studies[k]);}}
+      setSave("Salvo na sua conta");
+    }catch(e){store={kind:"ls"};saved=loadLocal();}
+  }else{store={kind:"ls"};saved=loadLocal();}
+  if(mergeCfg(saved))saveCfg();
+  restoreTimer();
+  ready=true;
+  render();
+  if(PWA)try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist();}catch(e){}
+}
+function loadLocal(){const all=lsAll();for(const k in all)studies[k]=C.normalize(all[k]);setSave("Salvo neste aparelho");try{return JSON.parse(localStorage.getItem(LSC)||"null");}catch(e){return null;}}
+const sortedIds=()=>Object.keys(studies).sort((a,b)=>(studies[b].atualizado||0)-(studies[a].atualizado||0));
+
+/* cronômetro sobrevive ao app fechar ou recarregar */
+let ready=false;
+function saveTimer(){
+  if(!ready)return;
+  try{
+    const s=cur();
+    if(!s||!timer.cycle){localStorage.removeItem(LST);return;}
+    const ci=s.ciclos.indexOf(timer.cycle);if(ci<0){localStorage.removeItem(LST);return;}
+    const nc=timer.nc?{s:timer.nc.s,elId:timer.nc.elId,tipo:timer.nc.tipo,obs:timer.nc.obs,ci:s.ciclos.indexOf(timer.nc.cycle)}:null;
+    localStorage.setItem(LST,JSON.stringify({sid:s.id,ci,running:timer.running,runStart:timer.runStart,actAcc:timer.actAcc,lapStart:timer.lapStart,cycleStart:timer.cycleStart,elIdx:timer.elIdx,ncLog:timer.ncLog,nc,obs:drafts.obs}));
+  }catch(e){}
+}
+function restoreTimer(){
+  let t=null;try{t=JSON.parse(localStorage.getItem(LST)||"null");}catch(e){}
+  if(!t)return;
+  const s=studies[t.sid];const c=s&&s.ciclos[t.ci];
+  if(!c){try{localStorage.removeItem(LST);}catch(e){}return;}
+  Object.assign(timer,{running:t.running,runStart:t.runStart,actAcc:t.actAcc,lapStart:t.lapStart,cycleStart:t.cycleStart,elIdx:Math.min(t.elIdx,s.elementos.length-1),cycle:c,ncLog:t.ncLog||[],undo:[],lastClosed:null,
+    nc:t.nc?{s:t.nc.s,elId:t.nc.elId,tipo:t.nc.tipo,obs:t.nc.obs,cycle:s.ciclos[t.nc.ci]||c}:null});
+  drafts.obs=t.obs||"";
+  curId=s.id;view="study";tab="crono";
+  try{history.replaceState({v:"home"},"");history.pushState({v:"study"},"");}catch(e){}
+  if(timer.running)lockOn();
+  setTimeout(()=>toast(`Ciclo ${c.n} em andamento recuperado`),300);
+}
+
+/* ---------- navegação ---------- */
+function openStudy(id,t){
+  if(timer.cycle&&id!==curId){toast("Encerre o ciclo em andamento antes");return;}
+  if(id!==curId)resetTimer();
+  curId=id;view="study";confirmDel=false;showAll=false;
+  const s=cur();tab=t||(s&&s.ciclos.length?"result":"estudo");
+  try{history.pushState({v:"study"},"");}catch(e){}
+  render();window.scrollTo(0,0);
+}
+function goHome(){
+  if(timer.cycle){toast("Encerre o ciclo em andamento antes de sair");return false;}
+  view="home";confirmDel=false;render();window.scrollTo(0,0);return true;
+}
+window.addEventListener("popstate",()=>{
+  if(view==="study"){if(!goHome()){try{history.pushState({v:"study"},"");}catch(e){}}}
+});
+
+/* ---------- render ---------- */
+function render(){
+  const s=cur();
+  if(view==="study"&&!s)view="home";
+  renderBar();renderTabbar();
+  const app=$("#app");
+  document.body.dataset.view=view==="home"?homeTab:tab;
+  if(view==="home"){
+    const t={estudos:"Estudos",consolidar:"Consolidar",ajustes:"Ajustes"}[homeTab];
+    app.innerHTML=`<h1 class="large">${t}</h1>`+(homeTab==="estudos"?homeList():homeTab==="consolidar"?consolView():settingsView());
+  }else{
+    app.innerHTML=`<section class="panel" id="panel"></section>`;
+    if(tab==="estudo")renderEstudo(s);else if(tab==="crono")renderCrono(s);else renderResult(s);
+  }
+  saveTimer();
+  if(timer.running)tick();
+}
+function renderBar(){
+  const bar=$("#bar"),s=cur();
+  if(view==="home"){
+    bar.innerHTML=`<div class="bar-in"><span class="bar-brand">${ic("timer",20)} Cronoanálise</span><span class="bar-sp"></span>
+      ${homeTab==="estudos"?`<button class="bar-btn" id="newBtn" aria-label="Novo estudo">${ic("plus")}</button>`:""}</div>`;
+  }else{
+    bar.innerHTML=`<div class="bar-in"><button class="bar-btn back" data-act="home" aria-label="Voltar aos estudos" ${timer.cycle?'aria-disabled="true"':""}>${ic("back")}<span>Estudos</span></button>
+      <span class="bar-title"><b>${esc(s.nome)}</b><small id="saveState">${esc(saveTxt)}</small></span><span class="bar-sp"></span></div>`;
+  }
+}
+function renderTabbar(){
+  const items=view==="home"?[["estudos","Estudos","list"],["consolidar","Consolidar","merge"],["ajustes","Ajustes","gear"]]
+    :[["estudo","Estudo","doc"],["crono","Cronometrar","timer"],["result","Resultados","chart"]];
+  const act=view==="home"?homeTab:tab;
+  $("#tabbar").innerHTML=items.map(([k,l,i])=>`<button data-${view==="home"?"htab":"tab"}="${k}" aria-current="${act===k?"page":"false"}">${ic(i,24)}<span>${l}${k==="crono"&&timer.cycle?' <i class="dot"></i>':""}</span></button>`).join("");
+}
+
+/* ---------- início: lista de estudos ---------- */
+function homeList(){
+  const ids=sortedIds();
+  if(!ids.length)return `<div class="empty">
+    <div class="empty-ic">${ic("timer",44)}</div>
+    <h2>Nenhum estudo ainda</h2>
+    <p class="hint">Cadastre a operação e os elementos, cronometre os ciclos com as não conformidades e gere o relatório em Excel com produtividade por homem-hora.</p>
+    <button class="btn primary wide" data-act="new">Criar estudo</button>
+    <button class="btn wide" data-act="example">Abrir um exemplo</button>
+    <button class="btn plain" data-act="import">Importar estudos (Excel ou backup)</button>
+  </div>`;
+  const q=busca.trim().toLowerCase();
+  const match=s=>!q||[s.nome,s.operacao,s.turno,s.operador,s.perfil,s.posto,dataBR(s.data)].join(" ").toLowerCase().includes(q);
+  const grupos={};ids.filter(id=>match(studies[id])).forEach(id=>{const s=studies[id];const k=String(s.operacao||"").trim()||"Sem operação";(grupos[k]=grupos[k]||[]).push(s);});
+  const running=timer.cycle?cur():null;
+  return `${running?`<button class="banner" data-open="${running.id}" data-otab="crono">${ic("timer",20)}<span><b>Ciclo ${timer.cycle.n} em andamento</b><br>${esc(running.nome)}</span>${ic("chev",18)}</button>`:""}
+  ${ids.length>4?`<input class="search" id="busca" type="search" placeholder="Buscar por nome, operação, turno, operador…" value="${esc(busca)}" autocomplete="off">`:""}
+  ${Object.keys(grupos).length?Object.entries(grupos).map(([op,list])=>`<div class="group">
+    <div class="group-h">${esc(op)}<span>${list.length}</span></div>
+    <div class="list">${list.map(s=>{const n=s.ciclos.length;const sub=[dataBR(s.data),s.turno,s.operador,s.perfil].filter(Boolean).map(esc).join(" · ");
+      return `<button class="item" data-open="${s.id}"><span class="item-main"><b>${esc(s.nome)}</b><small>${sub||"Sem detalhes"}</small></span>
+        <span class="item-meta">${n?`${n} ${n===1?"ciclo":"ciclos"}`:"vazio"}</span>${ic("chev",18)}</button>`;}).join("")}</div></div>`).join("")
+    :`<p class="hint center">Nenhum estudo encontrado para “${esc(busca)}”.</p>`}
+  <p class="hint center foot">Os estudos ficam salvos neste aparelho. Faça backup em Ajustes.</p>`;
+}
+
+/* ---------- consolidar ---------- */
+function consolView(){
+  const ids=sortedIds().filter(id=>studies[id].ciclos.length);
+  if(ids.length<2)return `<div class="empty"><div class="empty-ic">${ic("merge",44)}</div><h2>Junte estudos da mesma operação</h2>
+    <p class="hint">Um estudo feito em vários dias ou turnos vira vários estudos com o mesmo nome de operação. Aqui você escolhe quais juntar e gera um Excel único, com comparação por turno, perfil, data ou operador.</p>
+    <p class="hint">Você precisa de pelo menos 2 estudos com ciclos. Para juntar estudos de outros analistas, importe os arquivos Excel deles.</p>
+    <button class="btn wide" data-act="import">Importar estudos</button></div>`;
+  [...consolSel].forEach(id=>{if(!studies[id])consolSel.delete(id);});
+  const grupos={};ids.forEach(id=>{const s=studies[id];const k=String(s.operacao||"").trim()||"Sem operação";(grupos[k]=grupos[k]||[]).push(s);});
+  const sel=ids.filter(id=>consolSel.has(id)).map(id=>studies[id]);
+  const CC=window.CronoConsol;
+  let prev="";
+  if(sel.length>=2&&CC){
+    const G=CC.groups(sel,consolBy);
+    const rows=G.map(g=>{const m=g.list.length>1?CC.merge(g.list,g.lab):g.list[0];return [g.lab,g.list.length,C.stats(m)];});
+    if(G.length>1)rows.push(["Total",sel.length,C.stats(CC.merge(sel,"Total"))]);
+    const u=C.unidade(sel[0]);
+    prev=`<div class="tbl-wrap"><table><thead><tr><th>${esc(CC.GRUPOS.find(x=>x[0]===consolBy)[1])}</th><th class="num">Estudos</th><th class="num">Ciclos válidos</th><th class="num">Padrão ${esc(u)}/h·h</th><th class="num">Real ${esc(u)}/h·h</th></tr></thead>
+      <tbody>${rows.map(([l,n,st],i)=>`<tr ${i===rows.length-1&&G.length>1?'class="tot"':""}><td>${esc(l)}</td><td class="num">${n}</td><td class="num">${st.amostra.n}</td><td class="num">${fmt(st.cenarios.padrao.prod,1)}</td><td class="num">${fmt(st.cenarios.real.prod,1)}</td></tr>`).join("")}</tbody></table></div>`;
+    const w=CC.check(sel);if(w.length)prev+=`<div class="note warn">${w.map(esc).join("<br>")}</div>`;
+  }
+  return `<p class="hint pad">Escolha os estudos da mesma operação. O relatório compara os grupos e soma tudo numa coluna Total.</p>
+  <div class="field"><span class="label">Comparar por</span>
+    <div class="seg" role="radiogroup">${(CC?CC.GRUPOS:[]).map(([k,l])=>`<button role="radio" data-by="${k}" aria-checked="${consolBy===k}">${l.replace(" / grupo","")}</button>`).join("")}</div></div>
+  ${Object.entries(grupos).map(([op,list])=>{const all=list.every(s=>consolSel.has(s.id));return `<div class="group">
+    <div class="group-h">${esc(op)}<button class="link" data-selop="${esc(op)}">${all?"Limpar":"Selecionar todos"}</button></div>
+    <div class="list">${list.map(s=>`<label class="item check-item"><input type="checkbox" data-sel="${s.id}" ${consolSel.has(s.id)?"checked":""}>
+      <span class="item-main"><b>${esc(s.nome)}</b><small>${[dataBR(s.data),s.turno,s.operador,s.perfil].filter(Boolean).map(esc).join(" · ")}</small></span>
+      <span class="item-meta">${s.ciclos.length} ciclos</span></label>`).join("")}</div></div>`;}).join("")}
+  ${prev}
+  <div class="sticky-act"><button class="btn primary wide" data-act="consol" ${sel.length>=2?"":"disabled"}>${ic("share",20)} Gerar Excel consolidado${sel.length?` (${sel.length})`:""}</button>
+  <p class="hint center" id="consolMsg" aria-live="polite"></p></div>`;
+}
+
+/* ---------- ajustes ---------- */
+function settingsView(){
+  const n=Object.keys(studies).length;
+  let kb=0;try{kb=Math.round((localStorage.getItem(LS)||"").length/1024);}catch(e){}
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent),standalone=matchMedia("(display-mode: standalone)").matches||navigator.standalone;
+  return `<div class="group"><div class="group-h">Tipos de não conformidade</div>
+    <div class="card"><p class="hint">Lista única para todos os estudos. Também dá para criar tipos durante a cronometragem.</p>
+    <div class="tags">${cfg.tiposNC.map((t,i)=>`<span class="tag">${esc(t)}<button data-deltipo="${i}" aria-label="Remover ${esc(t)}">×</button></span>`).join("")}</div>
+    <div class="row"><input id="novoTipo" placeholder="Novo tipo, ex.: Etiqueta ilegível" autocomplete="off"><button class="btn" data-act="addtipo">Adicionar</button></div>
+    <button class="btn plain" data-act="resettipos">Voltar à lista padrão</button></div></div>
+  <div class="group"><div class="group-h">Dados</div>
+    <div class="list">
+      <button class="item" data-act="import"><span class="item-main"><b>Importar estudos</b><small>Excel exportado pelo app ou arquivo de backup</small></span>${ic("chev",18)}</button>
+      <button class="item" data-act="backup" ${n?"":"disabled"}><span class="item-main"><b>Fazer backup</b><small>${n} ${n===1?"estudo":"estudos"} em um arquivo .json${store&&store.kind==="ls"?` · ${kb} KB neste aparelho`:""}</small></span>${ic("chev",18)}</button>
+    </div>
+    <p class="hint pad">${store&&store.kind==="db"?"Os estudos ficam salvos na sua conta Claude.":"Os estudos ficam só neste aparelho e neste navegador. Faça backup antes de trocar de celular ou limpar os dados do navegador."}</p></div>
+  ${PWA?`<div class="group"><div class="group-h">App</div><div class="card">
+    ${standalone?`<p><b>App instalado.</b> Funciona sem internet.</p>`
+      :installEvt?`<button class="btn primary wide" data-act="install">Instalar na tela inicial</button>`
+      :ios?`<p><b>Para instalar no iPhone:</b> abra no Safari, toque em Compartilhar ${ic("share",16)} e depois em “Adicionar à Tela de Início”.</p>`
+      :`<p><b>Para instalar:</b> no Chrome, abra o menu ⋮ e toque em “Instalar app” ou “Adicionar à tela inicial”.</p>`}
+    ${swWaiting?`<button class="btn wide" data-act="update">Atualizar para a nova versão</button>`:""}
+    <p class="hint">Versão ${VERSAO}${navigator.onLine?"":" · sem internet agora"}</p></div></div>`:""}
+  <div class="group"><div class="group-h">Método</div><div class="card"><p class="hint">Tempo por unidade = ciclo médio ÷ quantidade média. Produtividade = 3.600 ÷ (tempo por unidade × pessoas). Capacidade/dia = produtividade × pessoas × horas disponíveis (PF&amp;D já descontado). Cenário padrão tira da média as leituras com NC; o real as mantém. Amostra: 95% de confiança, erro de ±5%.</p></div></div>`;
+}
+
+/* ---------- estudo ---------- */
+function renderEstudo(s){
+  const f=(k,l,type="text",extra="")=>`<label class="field"><span class="label">${l}</span><input id="f_${k}" data-f="${k}" type="${type}" value="${esc(s[k])}" ${extra}></label>`;
+  const u=C.unidade(s);
+  const turnos=[...new Set(C.TURNOS.concat(usedValues("turno")))],perfis=usedValues("perfil"),ops=usedValues("operacao");
+  $("#panel").innerHTML=`
+  <datalist id="dlTurno">${turnos.map(t=>`<option value="${esc(t)}">`).join("")}</datalist>
+  <datalist id="dlPerfil">${perfis.map(t=>`<option value="${esc(t)}">`).join("")}</datalist>
+  <datalist id="dlOp">${ops.map(t=>`<option value="${esc(t)}">`).join("")}</datalist>
+  <div class="box"><h2>Identificação</h2>
+    <div class="grid2">${f("nome","Nome do estudo")}${f("operacao","Operação","text",'list="dlOp" placeholder="mesmo nome em todos os dias"')}${f("posto","Posto / local")}
+      ${f("turno","Turno","text",'list="dlTurno" placeholder="ex.: 1º turno"')}
+      ${f("perfil","Perfil / grupo","text",'list="dlPerfil" placeholder="ex.: produto, cliente, família"')}
+      ${f("operador","Operador")}${f("analista","Analista")}${f("data","Data","date")}</div>
+    ${perfis.length?`<div class="chips start-j" aria-label="Perfis já usados">${perfis.map(p=>`<button class="chip" data-perfil="${esc(p)}" aria-pressed="${s.perfil===p}">${esc(p)}</button>`).join("")}</div>`:""}
+  </div>
+  <div class="box"><h2>Medição</h2>
+    <div class="grid2">
+      <label class="field"><span class="label">Unidade de medida</span>
+        <select id="f_unidade" data-f="unidade">${C.UNIDADES.map(([v,l])=>`<option value="${v}" ${s.unidade===v?"selected":""}>${l}</option>`).join("")}</select></label>
+      ${s.unidade==="outra"?f("unidadeOutra","Nome da unidade (plural)","text",'placeholder="ex.: paletes"'):""}
+      ${f("pessoas","Pessoas na atividade","number",'min="1" step="1" inputmode="numeric"')}
+      ${f("horasDia","Horas disponíveis por pessoa/dia","number",'min="1" max="24" step="0.1" inputmode="decimal"')}
+      ${f("demanda","Demanda diária ("+esc(u)+")","number",'min="0" step="any" inputmode="decimal" placeholder="opcional"')}
+    </div>
+    <p class="hint" style="margin-top:8px">${s.unidade==="ciclos"?"Cada ciclo conta como 1 unidade; o app não pergunta a quantidade.":`A quantidade de ${esc(u)} é informada no início de cada ciclo. Se cada ciclo produz sempre 1 unidade, escolha “Ciclos”.`} As horas disponíveis já descontam as pausas (PF&amp;D).</p>
+  </div>
+  <div class="box"><h2>Elementos do ciclo</h2>
+    <p class="hint">Na ordem em que acontecem. Defina onde cada um começa e termina.</p>
+    <div class="el-list">
+      ${s.elementos.map((e,i)=>`<div class="el-row"><span class="idx">${i+1}</span>
+        <input id="el_${e.id}" data-el="${e.id}" value="${esc(e.nome)}" aria-label="Nome do elemento ${i+1}">
+        <div class="row nowrap">
+          <button class="icon-btn" data-up="${e.id}" aria-label="Subir" ${i===0?"disabled":""}>↑</button>
+          <button class="icon-btn" data-delel="${e.id}" aria-label="Remover elemento" ${s.elementos.length<2||timer.cycle?"disabled":""}>×</button>
+        </div></div>`).join("")}
+    </div>
+    <button class="btn" data-act="addel">+ Adicionar elemento</button>
+  </div>
+  <div class="box">
+    <label class="field"><span class="label">Observações gerais do estudo</span>
+    <textarea id="f_obsGeral" data-f="obsGeral" rows="3" placeholder="Condições do posto, mix de produtos, equipamentos…">${esc(s.obsGeral)}</textarea></label>
+  </div>
+  <div class="list">
+    <button class="item" data-act="dup"><span class="item-main"><b>Duplicar para outro dia ou turno</b><small>Copia operação, elementos e parâmetros, sem as leituras</small></span>${ic("chev",18)}</button>
+  </div>
+  ${confirmDel?`<div class="confirm"><span>Excluir “${esc(s.nome)}” e todas as leituras?</span>
+      <button class="btn danger" data-act="delyes">Excluir</button><button class="btn" data-act="delno">Cancelar</button></div>`
+      :`<button class="btn danger plain" data-act="del">Excluir este estudo</button>`}`;
+}
+
+const elName=(s,id)=>(s.elementos.find(e=>e.id===id)||{nome:"(elemento removido)"}).nome;
+const cycComplete=(s,c)=>s.elementos.every(e=>c.leituras.some(l=>l.elId===e.id&&!l.parcial));
+function lastQty(s){for(let i=s.ciclos.length-1;i>=0;i--){if(s.ciclos[i].qtd!=null)return s.ciclos[i].qtd;}return null;}
+
+function renderCrono(s){
+  const u=C.unidade(s),porCiclo=s.unidade==="ciclos";
+  const list=showAll?s.ciclos.slice().reverse():s.ciclos.slice(-3).reverse();
+  const inCycle=!!timer.cycle;
+  const records=`<div class="records">
+    <div class="row between"><h2>Registros</h2>
+      ${s.ciclos.length>3?`<button class="btn plain" data-act="showall">${showAll?"Só os últimos":"Ver todos ("+s.ciclos.length+")"}</button>`:""}</div>
+    ${list.length?list.map(c=>cycleCard(s,c)).join(""):`<p class="hint">Nenhum ciclo ainda. ${porCiclo?"":"Informe a quantidade e "}toque em Iniciar ciclo quando o operador começar.</p>`}
+  </div>`;
+
+  if(!inCycle){
+    const nextN=s.ciclos.length+1,lq=lastQty(s),lc=timer.lastClosed&&s.ciclos.includes(timer.lastClosed)?timer.lastClosed:null;
+    const lcT=lc?lc.leituras.reduce((a,l)=>a+l.t,0):0;
+    $("#panel").innerHTML=`
+    ${lc?`<div class="done-strip" role="status"><b>Ciclo ${lc.n} fechado</b> · <span class="num">${fmt(lcT,1)} s</span>${lc.qtd!=null&&!porCiclo?` · ${fmtQ(lc.qtd)} ${esc(u)}`:""}${lc.ncs.length?` · ${lc.ncs.length} NC`:""}
+      ${timer.undo.length?`<button class="btn" data-act="undo" style="margin-left:auto">↶ Desfazer</button>`:""}</div>`:""}
+    <div class="box start">
+      <span class="label">Próximo · ciclo ${nextN}</span>
+      ${porCiclo?"":`<label class="field"><span>Quantidade deste ciclo (<b>${esc(u)}</b>)</span>
+        <div class="row"><input id="qtyIn" type="text" inputmode="decimal" value="${esc(drafts.qty)}" placeholder="${lq!=null?esc(fmtQ(lq)):"0"}" autocomplete="off">
+        ${lq!=null?`<button class="btn" data-act="qtyrep">Repetir ${esc(fmtQ(lq))}</button>`:""}</div></label>`}
+      <button class="mark" data-act="startcycle">INICIAR CICLO ${nextN}<small>${s.elementos.length} ${s.elementos.length===1?"elemento":"elementos"} · começa por “${esc(s.elementos[0].nome)}”</small></button>
+      ${s.ciclos.length?`<p class="hint">O intervalo entre ciclos não é cronometrado.</p>`:""}
+    </div>
+    ${records}`;
+    return;
+  }
+
+  const el=s.elementos[timer.elIdx]||s.elementos[0];
+  const isLast=timer.elIdx>=s.elementos.length-1;
+  const nc=timer.nc,c=timer.cycle;
+  const done=c.leituras.filter(l=>!l.parcial).length;
+  let controls;
+  if(confirmEnd){
+    controls=`<div class="endbox" role="alertdialog" aria-label="Encerrar cronometragem">
+      <b>Ciclo ${c.n} está em andamento</b>
+      <span class="hint">${done} de ${s.elementos.length} elementos marcados${c.qtd!=null&&!porCiclo?` · ${fmtQ(c.qtd)} ${esc(u)}`:""}. O que fazer com ele?</span>
+      ${isLast?`<button class="btn primary" data-act="endclose">Fechar o ciclo agora e encerrar<br><span class="sm">“${esc(el.nome)}” é gravado com ${fmt((act()-timer.lapStart)/1000,1)} s</span></button>`:""}
+      <button class="btn" data-act="endpartial">Salvar como incompleto<br><span class="sm">fica no relatório, fora da média e da produtividade</span></button>
+      <button class="btn danger" data-act="enddiscard">Descartar o ciclo ${c.n}</button>
+      <button class="btn" data-act="endback">Voltar a cronometrar</button>
+    </div>`;
+  }else{
+    controls=`<div class="ctrl">
+      <button class="mark ${isLast?"last":""}" id="markBtn" ${timer.running?"":"disabled"}>${isLast?"FECHAR CICLO":"MARCAR"}<small>${isLast?`registra “${esc(el.nome)}” e encerra o ciclo ${c.n}`:`registra “${esc(el.nome)}” e inicia o próximo`}</small></button>
+      ${nc?ncPanel(s,nc):`<button class="btn nc full" data-act="ncstart" ${timer.running?"":"disabled"}>⚠ NÃO CONFORMIDADE</button>`}
+      <div class="trio full">
+        <button class="btn" data-act="undo" ${timer.undo.length?"":"disabled"}>↶ Desfazer</button>
+        ${timer.running?`<button class="btn" data-act="pause">Pausar</button>`:`<button class="btn primary" data-act="resume">Retomar</button>`}
+        <button class="btn" data-act="stop">Encerrar</button>
+      </div>
+    </div>`;
+  }
+  $("#panel").innerHTML=`
+  <div class="box clock">
+    <div class="label">Ciclo ${c.n}${c.qtd!=null&&!porCiclo?` · ${fmtQ(c.qtd)} ${esc(u)}`:""} · elemento ${timer.elIdx+1} de ${s.elementos.length}${timer.running?"":" · em pausa"}</div>
+    <div class="cur">${esc(el.nome)}</div>
+    <div class="big" id="lapClock">${fmtClock(act()-timer.lapStart)}</div>
+    <div class="sub"><span>Ciclo <b class="num" id="cycClock">${fmtClock(act()-timer.cycleStart)}</b></span><span>Fechados <b class="num">${s.ciclos.filter(x=>x!==c).length}</b></span></div>
+    <div class="chips" aria-label="Escolher elemento">
+      ${s.elementos.map((e,i)=>`<button class="chip" data-jump="${i}" aria-pressed="${i===timer.elIdx}">${i+1}. ${esc(e.nome)}</button>`).join("")}
+    </div>
+  </div>
+  ${controls}
+  <div class="box">
+    <label class="field"><span class="label">Observação do elemento em andamento</span>
+      <input id="obsIn" value="${esc(drafts.obs)}" placeholder="Ex.: material faltando, ferramenta trocada…" autocomplete="off"></label>
+    <div class="row between" style="margin-top:8px">
+      <span class="hint">Gravada em “${esc(el.nome)}” ao tocar em ${isLast?"FECHAR CICLO":"MARCAR"}.</span>
+      <button class="btn plain" data-act="obslast">Anotar no último registro</button>
+    </div>
+  </div>
+  ${records}`;
+}
+function ncPanel(s,nc){
+  return `<div class="ncbox" role="status">
+    <div class="head"><span class="label" style="color:var(--bad)">Não conformidade em andamento</span><span class="ncclock" id="ncClock">${fmtClock(act()-nc.s)}</span></div>
+    <div class="hint">Começou em “${esc(elName(s,nc.elId))}”. O elemento continua contando.</div>
+    <div class="chips start-j" aria-label="Tipo da não conformidade">${cfg.tiposNC.map(t=>`<button class="chip" data-nctipo="${esc(t)}" aria-pressed="${nc.tipo===t}">${esc(t)}</button>`).join("")}
+      <button class="chip add" data-act="ncadd" aria-expanded="${ncAdding}">+ Novo tipo</button></div>
+    ${ncAdding?`<div class="row"><input id="ncNewType" placeholder="Nome do novo tipo" autocomplete="off"><button class="btn" data-act="ncaddsave">Adicionar</button></div>`:""}
+    <input id="ncObsIn" placeholder="O que aconteceu?" value="${esc(nc.obs)}" autocomplete="off">
+    <button class="btn ncstop" data-act="ncend">ENCERRAR NÃO CONFORMIDADE</button>
+  </div>`;
+}
+function cycleCard(s,c){
+  const ci=s.ciclos.indexOf(c),u=C.unidade(s);
+  const tempo=c.leituras.reduce((a,l)=>a+l.t,0);
+  const incompleto=c!==timer.cycle&&!cycComplete(s,c);
+  const tipos=x=>cfg.tiposNC.concat(x.tipo&&!cfg.tiposNC.includes(x.tipo)?[x.tipo]:[]);
+  const rows=c.leituras.map((l,li)=>`<div class="read ${C.excl(s,l)?"abn":""}">
+      <span class="t">${fmt(l.t)} s</span>
+      <div class="who"><b>${esc(elName(s,l.elId))}</b>${l.nc>0?`<span class="badge">NC ${fmt(l.nc,1)} s</span>`:""}${l.parcial?`<span class="badge warnb">parcial</span>`:""}${l.obs?`<div class="obs">${esc(l.obs)}</div>`:""}</div>
+      <div class="acts"><button data-abn="${ci}:${li}" aria-pressed="${l.anormal}" title="Tirar da média">anormal</button><button data-delr="${ci}:${li}" aria-label="Excluir leitura">×</button></div>
+    </div>`).join("");
+  const ncs=c.ncs.map((x,ni)=>`<div class="read ncr">
+      <span class="t">${fmt(x.t)} s</span>
+      <div class="who"><b>NC</b> <span class="hint">em ${esc(elName(s,x.elId))}</span>
+        <div><select id="nct_${ci}_${ni}" data-nctype="${ci}:${ni}" aria-label="Tipo da não conformidade">
+          <option value="" ${!x.tipo?"selected":""}>Não classificada</option>
+          ${tipos(x).map(t=>`<option ${t===x.tipo?"selected":""}>${esc(t)}</option>`).join("")}</select></div>
+        ${x.obs?`<div class="obs">${esc(x.obs)}</div>`:""}</div>
+      <div class="acts"><button data-delnc="${ci}:${ni}" aria-label="Excluir não conformidade">×</button></div>
+    </div>`).join("");
+  return `<div class="cyc">
+    <div class="cyc-h"><b>Ciclo ${c.n}${c===timer.cycle?" · em andamento":""}${incompleto?` <span class="badge warnb">incompleto</span>`:""}</b>
+      <span class="hint num">${fmt(tempo)} s${c.ncs.length?` · ${c.ncs.length} NC`:""}</span>
+      ${s.unidade==="ciclos"?"":`<label class="q"><input id="q_${ci}" data-qty="${ci}" type="text" inputmode="decimal" value="${esc(fmtQ(c.qtd))}" placeholder="qtd" aria-label="Quantidade de ${esc(u)} do ciclo ${c.n}"><span class="hint">${esc(u)}</span></label>`}
+    </div>${rows}${ncs}</div>`;
+}
+
+function renderResult(s){
+  const st=C.stats(s),u=C.unidade(s),u1=C.sing(s);
+  const ok=(n,need)=>Number.isFinite(need)?(n>=need?`<span class="pill ok">ok</span>`:`<span class="pill warn">+${need-n}</span>`):`<span class="pill warn">poucas</span>`;
+  const a=st.amostra;
+  const maxP=st.nc.pareto.length?st.nc.pareto[0].t:1;
+  if(!st.ciclos.length){$("#panel").innerHTML=`<div class="empty"><div class="empty-ic">${ic("chart",44)}</div><h2>Sem ciclos ainda</h2><p class="hint">Os resultados aparecem depois do primeiro ciclo cronometrado.</p><button class="btn primary wide" data-tab="crono">Ir para Cronometrar</button></div>`;return;}
+  $("#panel").innerHTML=`
+  <div class="kpis">
+    <div class="kpi"><div class="label">Tempo padrão</div><div class="v">${fmt(st.tpUn)}</div><div class="u">s por ${esc(u1)} · ciclo médio ${fmt(st.tpCiclo,1)} s</div></div>
+    <div class="kpi"><div class="label">Produtividade</div><div class="v">${fmt(st.prod,1)}</div><div class="u">${esc(u)}/h·h · ${st.N} ${st.N>1?"pessoas":"pessoa"}</div></div>
+    <div class="kpi"><div class="label">Capacidade/dia</div><div class="v">${fmt(st.capDia,0)}</div><div class="u">${esc(u)} da equipe em ${fmt(st.horas,1)} h</div></div>
+    ${st.dem>0?`<div class="kpi"><div class="label">Pessoas p/ demanda</div><div class="v">${fmt(st.pessoasNec,2)}</div><div class="u">${fmt(st.dem,0)} ${esc(u)}/dia → ${Number.isFinite(st.pessoasNec)?Math.ceil(st.pessoasNec-1e-9):"–"} pessoas</div></div>`:""}
+    <div class="kpi ${st.nc.n?"alert":""}"><div class="label">Perda em NC</div><div class="v">${fmt(st.nc.pctObs,1)}%</div><div class="u">${st.nc.n} ${st.nc.n===1?"ocorrência":"ocorrências"} · ${fmt(st.nc.total,0)} s</div></div>
+  </div>
+  ${st.comQ<st.completos?`<div class="note warn">${st.completos-st.comQ} ciclo(s) completo(s) sem quantidade. Informe as ${esc(u)} na aba Cronometrar para entrarem na produtividade.</div>`:""}
+  <div class="export">
+    <button class="btn primary wide" data-act="xlsx">${ic("share",20)} Exportar relatório em Excel</button>
+    ${PWA?`<button class="btn plain" data-act="xlsxdl">${ic("down",16)} Baixar o arquivo em vez de compartilhar</button>`:""}
+    <p class="hint center" id="xlsxMsg" aria-live="polite"></p>
+  </div>
+  ${cenBox(st,u,u1)}
+  <div class="box"><h2>Validade da amostra</h2>
+    <p class="hint" style="margin-bottom:10px">Tempo por ${esc(u1)} nos ciclos completos, com quantidade e sem leitura excluída. 95% de confiança, erro de ±5%.</p>
+    <div class="kv">
+      <div><span class="label">Ciclos válidos</span><b>${a.n}</b></div>
+      <div><span class="label">Necessários</span><b>${Number.isFinite(a.nNec)?a.nNec:"–"}</b></div>
+      <div><span class="label">Média s/${esc(u1)}</span><b>${fmt(a.mean)}</b></div>
+      <div><span class="label">CV</span><b>${fmt(a.cv,1)}%</b></div>
+      <div><span class="label">Situação</span><b>${ok(a.n,a.nNec)}</b></div>
+    </div>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Elemento</th><th class="num">n</th><th class="num">Média s</th><th class="num">Mediana</th><th class="num">DP</th><th class="num">CV %</th><th class="num">Mín</th><th class="num">Máx</th><th class="num">% ciclo</th><th class="num">s/${esc(u1)}</th><th>Amostra</th></tr></thead>
+    <tbody>${st.rows.map(r=>`<tr>
+      <td>${esc(r.e.nome)}${r.exc?` <span class="hint">(${r.exc} fora)</span>`:""}</td>
+      <td class="num">${r.n}</td><td class="num">${fmt(r.mean)}</td><td class="num">${fmt(r.med)}</td><td class="num">${fmt(r.sd)}</td><td class="num">${fmt(r.cv,1)}</td>
+      <td class="num">${fmt(r.min)}</td><td class="num">${fmt(r.max)}</td><td class="num">${fmt(r.pctCiclo,1)}</td><td class="num">${fmt(r.porUn)}</td><td>${ok(r.n,r.nNec)}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td>Ciclo médio</td><td></td><td class="num">${fmt(st.tmCiclo)}</td><td colspan="5"></td><td class="num">100,0</td><td class="num">${fmt(st.tpUn)}</td><td></td></tr></tfoot>
+  </table></div>
+  <div class="box"><h2>Não conformidades por tipo</h2>
+    ${st.nc.pareto.length?`<div class="pareto">${st.nc.pareto.map(p=>`<div class="pbar">
+        <span class="nm">${esc(p.tipo)} <span class="hint">· ${p.n}×</span></span>
+        <span class="vl">${fmt(p.t,1)} s · ${fmt(p.pct,0)}% · acum. ${fmt(p.acum,0)}%</span>
+        <div class="track"><div class="fill" style="width:${Math.max(2,p.t/maxP*100)}%"></div></div></div>`).join("")}</div>
+      <p class="hint" style="margin-top:10px">${st.nc.ciclosAfet} de ${st.ciclos.length} ciclos afetados (${fmt(st.nc.pctCiclos,0)}%).</p>`
+      :`<p class="hint">Nenhuma não conformidade registrada. Durante a cronometragem, use o botão vermelho para medir cada ocorrência.</p>`}
+  </div>
+  <div class="box" id="fbBox" hidden>
+    <label class="field"><span class="label">Relatório em texto (separado por tabulação)</span>
+    <textarea id="fbText" rows="6" readonly style="font-size:.78rem;white-space:pre;overflow-x:auto"></textarea></label>
+    <button class="btn" data-act="copytsv">Copiar</button>
+  </div>`;
+}
+
+function cenBox(st,u,u1){
+  const P=st.cenarios.padrao,R=st.cenarios.real;
+  const imp=(a,b)=>Number.isFinite(a)&&Number.isFinite(b)&&a?((b/a-1)*100):NaN;
+  const pct=v=>Number.isFinite(v)?`<span class="${Math.abs(v)<0.05?"hint":"neg"}">${v>0?"+":""}${fmt(v,1)}%</span>`:"–";
+  const line=(l,a,b,d)=>`<tr><td>${l}</td><td class="num">${fmt(a,d)}</td><td class="num">${fmt(b,d)}</td><td class="num">${pct(imp(a,b))}</td></tr>`;
+  return `<div class="box"><h2>Cenários: padrão × real</h2>
+    <p class="hint" style="margin-bottom:10px"><b>Padrão</b> tira da média as leituras com não conformidade: é a capacidade do processo. <b>Real</b> mantém essas leituras: é o que a operação entrega hoje.</p>
+    <div class="tbl-wrap"><table class="cen">
+      <thead><tr><th>Indicador</th><th class="num">Padrão</th><th class="num">Real</th><th class="num">Impacto</th></tr></thead>
+      <tbody>${line("Tempo por "+esc(u1)+" (s)",P.un,R.un,2)}${line("Produtividade ("+esc(u)+"/h·h)",P.prod,R.prod,1)}${line("Capacidade/dia ("+esc(u)+")",P.capDia,R.capDia,0)}
+      ${st.dem>0?line("Pessoas p/ demanda",P.pessoasNec,R.pessoasNec,2):""}</tbody></table></div>
+    ${Number.isFinite(st.cenarios.gap.prodPct)&&st.nc.n?`<p class="hint" style="margin-top:10px">As não conformidades custam <b>${fmt(Math.abs(st.cenarios.gap.prodPct),1)}%</b> da produtividade, ou <b>${fmt(Math.abs(st.cenarios.gap.capDia),0)} ${esc(u)}</b> por dia da equipe${st.dem>0&&Number.isFinite(st.cenarios.gap.pessoas)?` (${fmt(st.cenarios.gap.pessoas,2)} pessoa a mais para a mesma demanda)`:""}.</p>`:""}
+  </div>`;
+}
+
+/* ---------- cronômetro ---------- */
+const now_=()=>Date.now();
+const act=()=>timer.actAcc+(timer.running?now_()-timer.runStart:0);
+let raf=0;
+function tick(){
+  cancelAnimationFrame(raf);
+  if(!timer.running)return;
+  const now=act();
+  const a=$("#lapClock"),b=$("#cycClock"),n=$("#ncClock");
+  if(a)a.textContent=fmtClock(now-timer.lapStart);
+  if(b)b.textContent=fmtClock(now-timer.cycleStart);
+  if(n&&timer.nc)n.textContent=fmtClock(now-timer.nc.s);
+  raf=requestAnimationFrame(tick);
+}
+async function lockOn(){try{if(!wakeLock)wakeLock=await navigator.wakeLock?.request("screen");if(wakeLock)wakeLock.addEventListener("release",()=>{wakeLock=null;});}catch(e){wakeLock=null;}}
+function lockOff(){try{wakeLock?.release();}catch(e){}wakeLock=null;}
+const buzz=p=>{try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}};
+function run(){if(!timer.running){timer.runStart=now_();timer.running=true;}lockOn();}
+function halt(){if(timer.running){timer.actAcc=act();timer.running=false;}cancelAnimationFrame(raf);}
+function ncOverlap(a,b){
+  let ms=0;
+  timer.ncLog.concat(timer.nc?[{s:timer.nc.s,e:b}]:[]).forEach(x=>{ms+=Math.max(0,Math.min(x.e,b)-Math.max(x.s,a));});
+  return ms;
+}
+const parseQty=v=>{const t=String(v??"").trim();if(!t)return null;const n=parseFloat(t.replace(",","."));return Number.isFinite(n)&&n>=0?n:undefined;};
+
+function startCycle(){
+  const s=cur();if(!s||timer.cycle)return;
+  let q;
+  if(s.unidade==="ciclos")q=1;
+  else{const qi=$("#qtyIn");q=parseQty(qi?qi.value:drafts.qty);if(q===undefined){toast("Quantidade inválida");return;}}
+  timer.cycle={n:s.ciclos.length+1,leituras:[],ncs:[],qtd:q,obs:""};
+  s.ciclos.push(timer.cycle);
+  run();
+  timer.lapStart=act();timer.cycleStart=timer.lapStart;timer.elIdx=0;timer.ncLog=[];timer.undo=[];timer.lastClosed=null;
+  drafts.qty="";confirmEnd=null;
+  buzz(30);scheduleSave(s);render();
+  if(q==null)toast("Ciclo iniciado sem quantidade. Você pode informar depois no registro.");
+}
+function record(parcial){
+  const s=cur(),c=timer.cycle;const now=act();
+  const obsEl=$("#obsIn");const obs=((obsEl?obsEl.value:drafts.obs)||"").trim();
+  const el=s.elementos[timer.elIdx];
+  const reading={elId:el.id,t:+((now-timer.lapStart)/1000).toFixed(2),obs,anormal:false,nc:+(ncOverlap(timer.lapStart,now)/1000).toFixed(2),ts:Date.now()};
+  if(parcial)reading.parcial=true;
+  c.leituras.push(reading);
+  timer.undo.push({cycle:c,reading,prevLapStart:timer.lapStart,prevElIdx:timer.elIdx,prevCycleStart:timer.cycleStart,closed:false});
+  drafts.obs="";
+  timer.lapStart=now;timer.ncLog=timer.ncLog.filter(x=>x.e>now);
+  return now;
+}
+function mark(){
+  const s=cur();if(!s||!timer.running||!timer.cycle)return;
+  const now=record(false);
+  if(timer.elIdx>=s.elementos.length-1){closeCycle(now);buzz([40,60,40]);}
+  else{timer.elIdx++;buzz(25);}
+  scheduleSave(s);render();
+}
+function closeCycle(now){
+  if(timer.nc)ncEnd(true,now);
+  halt();
+  const c=timer.cycle;
+  if(timer.undo.length)timer.undo[timer.undo.length-1].closed=true;
+  timer.lastClosed=c;timer.cycle=null;timer.elIdx=0;
+  lockOff();
+}
+function undo(){
+  const s=cur(),u=timer.undo.pop();if(!s||!u)return;
+  const i=u.cycle.leituras.indexOf(u.reading);if(i>=0)u.cycle.leituras.splice(i,1);
+  if(u.closed){timer.cycle=u.cycle;timer.cycleStart=u.prevCycleStart;timer.lastClosed=null;run();}
+  timer.lapStart=u.prevLapStart;timer.elIdx=u.prevElIdx;
+  if(u.reading.obs)drafts.obs=u.reading.obs;
+  scheduleSave(s);toast(`Desfeito: “${elName(s,u.reading.elId)}” volta a contar`);render();
+}
+function ncStart(){
+  const s=cur();if(!s||!timer.running||!timer.cycle||timer.nc)return;
+  timer.nc={s:act(),elId:s.elementos[timer.elIdx].id,cycle:timer.cycle,tipo:"",obs:""};ncAdding=false;
+  buzz([30,40,30]);render();
+}
+function ncEnd(silent,at){
+  const s=cur(),nc=timer.nc;if(!s||!nc)return;
+  const e=at!=null?at:act();
+  const ob=$("#ncObsIn");if(ob)nc.obs=ob.value.trim();
+  nc.cycle.ncs.push({id:uid(),tipo:nc.tipo,t:+((e-nc.s)/1000).toFixed(2),obs:nc.obs,elId:nc.elId,ts:Date.now()});
+  timer.ncLog.push({s:nc.s,e});timer.nc=null;ncAdding=false;
+  scheduleSave(s);
+  if(!silent){toast(`NC registrada: ${fmt((e-nc.s)/1000,1)} s`);render();}
+}
+function askEnd(){
+  if(!timer.cycle){endSession();toast("Cronometragem encerrada");return render();}
+  confirmEnd={wasRunning:timer.running};halt();render();
+}
+function finishEnd(mode){
+  const s=cur(),c=timer.cycle;if(!s||!c)return;
+  if(mode==="back"){const w=confirmEnd&&confirmEnd.wasRunning;confirmEnd=null;if(w)run();return render();}
+  if(mode==="close"){const now=record(false);closeCycle(now);}
+  else if(mode==="partial"){
+    if(timer.nc)ncEnd(true);
+    if(act()-timer.lapStart>0)record(true);
+  }else if(mode==="discard"){
+    timer.nc=null;const i=s.ciclos.indexOf(c);if(i>=0)s.ciclos.splice(i,1);
+  }
+  endSession();
+  toast(mode==="discard"?`Ciclo ${c.n} descartado`:mode==="partial"?`Ciclo ${c.n} salvo como incompleto`:`Ciclo ${c.n} fechado`);
+  render();
+}
+function endSession(){
+  const s=cur();
+  timer.nc=null;halt();timer.actAcc=0;timer.lapStart=0;timer.cycleStart=0;timer.cycle=null;timer.elIdx=0;timer.ncLog=[];timer.undo=[];timer.lastClosed=null;
+  confirmEnd=null;ncAdding=false;lockOff();
+  if(s){s.ciclos=s.ciclos.filter(c=>c.leituras.length||c.ncs.length);s.ciclos.forEach((c,i)=>c.n=i+1);scheduleSave(s);}
+}
+function resetTimer(){timer.nc=null;halt();Object.assign(timer,{actAcc:0,lapStart:0,cycleStart:0,cycle:null,elIdx:0,ncLog:[],undo:[],lastClosed:null});confirmEnd=null;ncAdding=false;lockOff();drafts.obs="";drafts.qty="";}
+
+/* ---------- arquivos ---------- */
+const XLSX_MIME="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const safeName=t=>t.replace(/[^\w\- .()À-ú]/g,"-").replace(/\s+/g," ").trim();
+let dlPromise=null;
+function getDownloads(){if(!dlPromise)dlPromise=PWA||!window.claude?Promise.resolve(null):Promise.resolve().then(()=>window.claude.use("downloads")).catch(()=>null);return dlPromise;}
+function anchorDownload(blob,fname){const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),8000);}
+// Salva um arquivo: no Claude usa o download da conta; no celular abre o menu de compartilhar; no computador baixa.
+async function saveFile(blob,fname,forceDownload){
+  const dl=await getDownloads();
+  if(dl){
+    try{const r=await dl.save({filename:fname,data:blob});return r&&r.status==="saved"?"saved":"cancel";}
+    catch(e){const c=(e&&e.code)||"erro";if(c==="declined")return "cancel";throw new Error(c);}
+  }
+  if(!forceDownload&&matchMedia("(pointer:coarse)").matches&&navigator.canShare){
+    try{const file=new File([blob],fname,{type:blob.type});
+      if(navigator.canShare({files:[file]})){await navigator.share({files:[file],title:fname});return "shared";}}
+    catch(e){if(e&&e.name==="AbortError")return "cancel";}
+  }
+  anchorDownload(blob,fname);return "downloaded";
+}
+const saveMsg=r=>({saved:"Relatório salvo. No iPhone, escolha “Salvar em Arquivos”; no Android ele vai para Downloads.",shared:"Arquivo enviado. Salve na pasta da rede, no Drive ou no Teams.",downloaded:"Arquivo baixado na pasta Downloads.",cancel:"Cancelado."})[r]||"";
+function buildXlsxFallback(s){
+  const wb=XLSX.utils.book_new();
+  C.sheets(s).forEach(sh=>{const ws=XLSX.utils.aoa_to_sheet(sh.aoa);ws["!cols"]=sh.cols.map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,sh.name);});
+  return XLSX.write(wb,{bookType:"xlsx",type:"array"});
+}
+function tsvReport(s){
+  const sh=C.sheets(s);const pick=n=>sh.find(x=>x.name===n).aoa;
+  const lines=[...pick("Resumo"),[],["CICLOS"],...pick("Ciclos"),[],["OBSERVAÇÕES"],...pick("Observações")];
+  return lines.map(r=>r.map(x=>typeof x==="number"?String(x).replace(".",","):String(x??"").replace(/[\t\n]/g," ")).join("\t")).join("\n");
+}
+function showFallback(why){
+  const m=$("#xlsxMsg");if(m)m.textContent=why+" Copie o relatório abaixo e cole na célula A1 de uma planilha.";
+  const fb=$("#fbBox");if(fb){fb.hidden=false;$("#fbText").value=tsvReport(cur());}
+}
+async function exportXlsx(forceDownload){
+  const s=cur(),msg=$("#xlsxMsg");
+  let buf=null;
+  if(window.ExcelJS&&window.CronoReport){try{const wb=await window.CronoReport.build(s,window.ExcelJS);buf=await wb.xlsx.writeBuffer();}catch(e){console.error(e);buf=null;}
+    if(buf&&window.JSZip){try{buf=await window.CronoReport.addPivot(buf,s,window.JSZip);}catch(e){console.error("tabela dinâmica",e);}}}
+  if(!buf){if(typeof XLSX==="undefined"){showFallback("O gerador de planilhas não carregou.");return;}buf=buildXlsxFallback(s);}
+  const fname=safeName("Cronoanalise - "+(s.nome||"estudo")+" - "+(s.data||today()))+".xlsx";
+  try{const r=await saveFile(new Blob([buf],{type:XLSX_MIME}),fname,forceDownload);msg.textContent=saveMsg(r);if(r!=="cancel")toast("Relatório gerado");}
+  catch(e){showFallback("O salvamento falhou ("+e.message+").");}
+}
+async function exportConsol(){
+  const sel=sortedIds().filter(id=>consolSel.has(id)).map(id=>studies[id]);
+  const msg=$("#consolMsg");
+  if(sel.length<2||!window.ExcelJS||!window.CronoConsol){if(msg)msg.textContent="Selecione pelo menos 2 estudos.";return;}
+  const buf=await window.CronoConsol.build(sel,window.ExcelJS,window.JSZip,{groupBy:consolBy});
+  const ops=[...new Set(sel.map(s=>String(s.operacao||"").trim()).filter(Boolean))];
+  const fname=safeName("Consolidado - "+(ops.length===1?ops[0]:"cronoanalises")+" - "+today())+".xlsx";
+  const r=await saveFile(new Blob([buf],{type:XLSX_MIME}),fname);
+  if(msg)msg.textContent=saveMsg(r);
+}
+async function backup(){
+  const data={app:"cronoanalise",v:1,exportado:new Date().toISOString(),cfg:{tiposNC:cfg.tiposNC.slice()},estudos:sortedIds().map(id=>studies[id])};
+  const r=await saveFile(new Blob([JSON.stringify(data)],{type:"application/json"}),"Cronoanalise - backup - "+today()+".json");
+  toast(r==="cancel"?"Backup cancelado":"Backup gerado");
+}
+async function importFiles(files){
+  let add=0,upd=0,same=0;const bad=[];
+  for(const f of files){
+    let arr=null,cf=null;
+    try{
+      if(/\.json$/i.test(f.name)||f.type==="application/json"){const o=JSON.parse(await f.text());arr=Array.isArray(o)?o:o.estudos;cf=o.cfg;}
+      else if(window.ExcelJS&&window.CronoReport){arr=await window.CronoReport.readEmbedded(await f.arrayBuffer(),window.ExcelJS);}
+    }catch(e){console.error(e);}
+    if(!Array.isArray(arr)){bad.push(f.name);continue;}
+    if(cf&&Array.isArray(cf.tiposNC))cf.tiposNC.forEach(t=>{if(t&&!cfg.tiposNC.includes(t))cfg.tiposNC.push(t);});
+    arr.forEach(raw=>{
+      if(!raw||typeof raw!=="object")return;
+      const s=C.normalize(JSON.parse(JSON.stringify(raw)));if(!s.id)s.id=uid();if(!s.atualizado)s.atualizado=Date.now();
+      const ex=studies[s.id];
+      if(ex&&(ex.atualizado||0)>=(s.atualizado||0)){same++;return;}
+      if(timer.cycle&&s.id===curId){same++;return;}
+      ex?upd++:add++;studies[s.id]=s;persist(s);
+      s.ciclos.forEach(c=>c.ncs.forEach(n=>{if(n.tipo&&!cfg.tiposNC.includes(n.tipo))cfg.tiposNC.push(n.tipo);}));
+    });
+  }
+  saveCfg();render();
+  const parts=[];if(add)parts.push(`${add} ${add===1?"estudo novo":"estudos novos"}`);if(upd)parts.push(`${upd} atualizado(s)`);if(same)parts.push(`${same} já estava(m) aqui`);
+  let t=parts.length?"Importado: "+parts.join(", ")+".":"Nada importado.";
+  if(bad.length)t+=` ${bad.length} arquivo(s) sem estudo embutido (Excel de versão antiga ou de outra origem).`;
+  toast(t,5000);
+}
+
+/* ---------- eventos ---------- */
+let toastT;
+function toast(t,ms){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>el.hidden=true,ms||2600);}
+function newStudy(s){if(timer.cycle){toast("Encerre o ciclo em andamento antes");return;}studies[s.id]=s;persist(s);resetTimer();openStudy(s.id,"estudo");}
+const pair=v=>v.split(":").map(Number);
+function addTipo(v){v=String(v||"").trim();if(!v)return null;if(!cfg.tiposNC.includes(v)){cfg.tiposNC.push(v);saveCfg();}return v;}
+
+document.addEventListener("click",async ev=>{
+  const b=ev.target.closest("button");if(!b||b.disabled)return;
+  const s=cur();
+  if(b.id==="newBtn")return newStudy(blankStudy("Estudo "+(Object.keys(studies).length+1)));
+  if(b.id==="markBtn")return mark();
+  if(b.dataset.htab){homeTab=b.dataset.htab;render();window.scrollTo(0,0);return;}
+  if(b.dataset.tab){if(view!=="study")return;tab=b.dataset.tab;confirmDel=false;render();window.scrollTo(0,0);return;}
+  if(b.dataset.open)return openStudy(b.dataset.open,b.dataset.otab);
+  if(b.dataset.by){consolBy=b.dataset.by;return render();}
+  if(b.dataset.selop!=null){const op=b.dataset.selop;const ids=sortedIds().filter(id=>studies[id].ciclos.length&&((String(studies[id].operacao||"").trim()||"Sem operação")===op));
+    const all=ids.every(id=>consolSel.has(id));ids.forEach(id=>all?consolSel.delete(id):consolSel.add(id));return render();}
+  if(b.dataset.deltipo!=null){cfg.tiposNC.splice(+b.dataset.deltipo,1);saveCfg();return render();}
+  const a=b.dataset.act;
+  switch(a){
+    case "home":{if(timer.cycle){toast("Encerre o ciclo em andamento antes de sair");return;}let st=null;try{st=history.state;}catch(e){}
+      if(st&&st.v==="study"){try{history.back();}catch(e){}setTimeout(()=>{if(view!=="home")goHome();},300);}else goHome();return;}
+    case "new":return newStudy(blankStudy("Estudo 1"));
+    case "example":return newStudy(exampleStudy());
+    case "import":return $("#fileIn").click();
+    case "backup":return backup();
+    case "addtipo":{if(addTipo($("#novoTipo").value))render();return;}
+    case "resettipos":{cfg.tiposNC=C.NC_PADRAO.slice();saveCfg();toast("Lista padrão restaurada");return render();}
+    case "install":{if(installEvt){installEvt.prompt();try{await installEvt.userChoice;}catch(e){}installEvt=null;render();}return;}
+    case "update":{if(swWaiting)swWaiting.postMessage("skipWaiting");return;}
+    case "consol":{b.disabled=true;const old=b.innerHTML;b.textContent="Gerando planilha…";
+      try{await exportConsol();}catch(e){console.error(e);const m=$("#consolMsg");if(m)m.textContent="Não consegui gerar o consolidado ("+((e&&e.message)||"erro")+").";}
+      b.disabled=false;b.innerHTML=old;return;}
+  }
+  if(!s)return;
+  switch(a){
+    case "addel":{s.elementos.push({id:uid(),nome:"Elemento "+(s.elementos.length+1)});scheduleSave(s);render();const ins=document.querySelectorAll("[data-el]");const l=ins[ins.length-1];l&&l.focus();l&&l.select();return;}
+    case "dup":{if(timer.cycle){toast("Encerre a cronometragem antes de duplicar");return;}const d=duplicateStudy(s);d.data=today();studies[d.id]=d;persist(d);curId=d.id;tab="estudo";confirmDel=false;render();window.scrollTo(0,0);toast("Estudo duplicado. Ajuste nome, turno, operador e data.");return;}
+    case "del":confirmDel=true;return render();
+    case "delno":confirmDel=false;return render();
+    case "delyes":{resetTimer();await removeStudy(s.id);confirmDel=false;curId=null;view="home";toast("Estudo excluído");return render();}
+    case "startcycle":return startCycle();
+    case "qtyrep":{const lq=lastQty(s);if(lq!=null){drafts.qty=fmtQ(lq);const i=$("#qtyIn");if(i)i.value=drafts.qty;}return;}
+    case "pause":halt();lockOff();return render();
+    case "resume":run();return render();
+    case "undo":return undo();
+    case "stop":return askEnd();
+    case "endclose":return finishEnd("close");
+    case "endpartial":return finishEnd("partial");
+    case "enddiscard":return finishEnd("discard");
+    case "endback":return finishEnd("back");
+    case "ncstart":return ncStart();
+    case "ncend":return ncEnd(false);
+    case "ncadd":{const ob=$("#ncObsIn");if(ob&&timer.nc)timer.nc.obs=ob.value;ncAdding=!ncAdding;render();const i=$("#ncNewType");i&&i.focus();return;}
+    case "ncaddsave":{const ob=$("#ncObsIn");if(ob&&timer.nc)timer.nc.obs=ob.value;const v=addTipo($("#ncNewType").value);if(v&&timer.nc){timer.nc.tipo=v;ncAdding=false;toast(`Tipo “${v}” criado`);}return render();}
+    case "showall":showAll=!showAll;return render();
+    case "obslast":{
+      const v=($("#obsIn").value||"").trim();if(!v)return;
+      let last=null;for(let i=s.ciclos.length-1;i>=0&&!last;i--){const c=s.ciclos[i];if(c.leituras.length)last=c.leituras[c.leituras.length-1];}
+      if(!last){toast("Registre uma leitura primeiro");return;}
+      last.obs=last.obs?last.obs+"; "+v:v;drafts.obs="";scheduleSave(s);toast("Observação anotada");return render();
+    }
+    case "xlsx":case "xlsxdl":{b.disabled=true;const old=b.innerHTML;b.textContent="Gerando planilha…";$("#xlsxMsg").textContent="";
+      try{await exportXlsx(a==="xlsxdl");}catch(e){showFallback("Não consegui montar a planilha ("+((e&&e.message)||"erro")+").");}
+      b.disabled=false;b.innerHTML=old;return;}
+    case "copytsv":{const txt=tsvReport(s);const ta=$("#fbText");ta.value=txt;
+      try{await navigator.clipboard.writeText(txt);toast("Copiado. Cole na célula A1 do Excel");}
+      catch(e){ta.focus();ta.select();toast("Texto selecionado: toque em Copiar no menu");}
+      return;}
+  }
+  if(b.dataset.nctipo!=null&&timer.nc){const ob=$("#ncObsIn");if(ob)timer.nc.obs=ob.value;timer.nc.tipo=timer.nc.tipo===b.dataset.nctipo?"":b.dataset.nctipo;return render();}
+  if(b.dataset.perfil!=null){s.perfil=b.dataset.perfil;scheduleSave(s);return render();}
+  if(b.dataset.up){const i=s.elementos.findIndex(e=>e.id===b.dataset.up);if(i>0){[s.elementos[i-1],s.elementos[i]]=[s.elementos[i],s.elementos[i-1]];scheduleSave(s);render();}return;}
+  if(b.dataset.delel){s.elementos=s.elementos.filter(e=>e.id!==b.dataset.delel);timer.elIdx=Math.min(timer.elIdx,s.elementos.length-1);scheduleSave(s);return render();}
+  if(b.dataset.jump!=null){timer.elIdx=+b.dataset.jump;return render();}
+  if(b.dataset.abn){const[ci,li]=pair(b.dataset.abn);const l=s.ciclos[ci].leituras[li];l.anormal=!l.anormal;scheduleSave(s);return render();}
+  if(b.dataset.delr||b.dataset.delnc){
+    const[ci,i]=pair(b.dataset.delr||b.dataset.delnc);const c=s.ciclos[ci];
+    if(b.dataset.delr){const r=c.leituras.splice(i,1)[0];timer.undo=timer.undo.filter(u=>u.reading!==r);}else c.ncs.splice(i,1);
+    if(!c.leituras.length&&!c.ncs.length&&c!==timer.cycle&&!(timer.nc&&timer.nc.cycle===c)){s.ciclos.splice(ci,1);s.ciclos.forEach((x,k)=>x.n=k+1);}
+    scheduleSave(s);return render();
+  }
+});
+
+document.addEventListener("input",ev=>{
+  const t=ev.target;
+  if(t.id==="busca"){busca=t.value;const pos=t.selectionStart;render();const n=$("#busca");if(n){n.focus();try{n.setSelectionRange(pos,pos);}catch(e){}}return;}
+  const s=cur();if(!s||view!=="study")return;
+  if(t.id==="obsIn"){drafts.obs=t.value;saveTimer();return;}
+  if(t.id==="qtyIn"){drafts.qty=t.value;return;}
+  if(t.id==="ncObsIn"&&timer.nc){timer.nc.obs=t.value;return;}
+  if(t.dataset.f&&t.tagName!=="SELECT"){const k=t.dataset.f;s[k]=(t.type==="number")?(t.value===""?"":+t.value):t.value;
+    if(k==="nome"){const h=document.querySelector(".bar-title b");if(h)h.textContent=s.nome;}
+    scheduleSave(s);}
+  else if(t.dataset.el){const e=s.elementos.find(x=>x.id===t.dataset.el);if(e){e.nome=t.value;scheduleSave(s);}}
+});
+document.addEventListener("change",ev=>{
+  const t=ev.target;
+  if(t.id==="fileIn"){const fs=[...t.files];t.value="";if(fs.length)importFiles(fs);return;}
+  if(t.dataset.sel){t.checked?consolSel.add(t.dataset.sel):consolSel.delete(t.dataset.sel);return render();}
+  const s=cur();if(!s)return;
+  if(t.dataset.f==="unidade"){s.unidade=t.value;scheduleSave(s);return render();}
+  if(t.dataset.qty!=null){const c=s.ciclos[+t.dataset.qty];const v=parseQty(t.value);if(c&&v!==undefined){c.qtd=v;scheduleSave(s);render();}else toast("Quantidade inválida");return;}
+  if(t.dataset.nctype){const[ci,ni]=pair(t.dataset.nctype);const x=s.ciclos[ci]&&s.ciclos[ci].ncs[ni];if(x){x.tipo=t.value;scheduleSave(s);}return;}
+});
+document.addEventListener("keydown",ev=>{
+  if(ev.key!=="Enter")return;
+  const id=ev.target.id;
+  if(id==="obsIn"||id==="ncObsIn"||id==="qtyIn"||id==="busca"){ev.preventDefault();ev.target.blur();}
+  else if(id==="novoTipo"){ev.preventDefault();document.querySelector('[data-act="addtipo"]')?.click();}
+  else if(id==="ncNewType"){ev.preventDefault();document.querySelector('[data-act="ncaddsave"]')?.click();}
+  else if(ev.target.dataset&&ev.target.dataset.qty!=null){ev.preventDefault();ev.target.blur();}
+});
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="hidden"){flushSaves();saveTimer();}
+  else if(timer.running){lockOn();tick();}
+});
+window.addEventListener("pagehide",()=>{flushSaves();saveTimer();});
+
+/* ---------- instalação e atualização (PWA) ---------- */
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;if(view==="home"&&homeTab==="ajustes")render();});
+window.addEventListener("appinstalled",()=>{installEvt=null;toast("App instalado");});
+window.addEventListener("online",()=>{if(view==="home"&&homeTab==="ajustes")render();});
+window.addEventListener("offline",()=>{if(view==="home"&&homeTab==="ajustes")render();});
+window.CronoUI={swUpdate(w){swWaiting=w;toast("Nova versão disponível: veja em Ajustes",4000);if(view==="home"&&homeTab==="ajustes")render();}};
+
+try{history.replaceState({v:"home"},"");}catch(e){}
+render();
+initStore();
+getDownloads();
+})();
+
+</script>
+
+</body>
+</html>

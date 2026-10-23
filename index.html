@@ -79,6 +79,7 @@ textarea{resize:vertical;min-height:44px}
 .bar-sp{flex:1}
 .bar-btn{display:flex;align-items:center;gap:2px;border:0;background:none;color:var(--bar-ink);min-height:44px;min-width:44px;justify-content:center;border-radius:10px;padding:0 6px}
 .bar-btn:active{background:rgba(255,255,255,.08)}
+.bar-btn.txt{color:var(--accent);font-weight:600;font-size:.95rem;padding:0 10px}
 .bar-btn.back{color:var(--accent);font-size:1rem;font-weight:500;padding-right:10px}
 .bar-btn[aria-disabled="true"]{opacity:.4}
 .bar-title{display:grid;min-width:0;flex:3;text-align:center;margin-right:44px}
@@ -590,7 +591,9 @@ async function build(s,ExcelJS,opts={}){
   const st=C.stats(s),u=C.unidade(s),u1=C.sing(s);
   const wb=new ExcelJS.Workbook();
   wb.creator="Cronoanálise de Campo";wb.created=new Date();
-  const titulo="Cronoanálise · "+(s.nome||"estudo");
+  const SO=opts.somado&&opts.somado.studies&&opts.somado.studies.length?opts.somado.studies:null;
+  const uniq=k=>[...new Set((SO||[]).map(x=>String(x[k]||"").trim()).filter(Boolean))].join(", ");
+  const titulo=SO?"Cronoanálise somada · "+(s.operacao||"estudos"):"Cronoanálise · "+(s.nome||"estudo");
   const charts={pareto:opts.charts===false?null:drawPareto(st),run:opts.charts===false?null:drawRun(st,u1)};
   const dataBR=d=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d||"");return m?`${m[3]}/${m[2]}/${m[1]}`:(d||"");};
   const P=st.cenarios.padrao,R=st.cenarios.real,G=st.cenarios.gap;
@@ -603,13 +606,18 @@ async function build(s,ExcelJS,opts={}){
   const section=(row,txt)=>{put(row,B,txt,{font:{bold:true,size:11,color:COL.band}},row,K);range(row,B,row,K,c=>c.border={bottom:side(COL.accent,"medium")});ws.getRow(row).height=22;return row+1;};
   let r;
   ws.getRow(1).height=4;
-  put(2,B,"RELATÓRIO DE CRONOANÁLISE",{font:{bold:true,size:18,color:COL.white},fill:COL.band,align:{indent:1}},2,K);ws.getRow(2).height=34;
-  put(3,B,[s.nome,s.operacao,dataBR(s.data)].filter(Boolean).join("  ·  "),{font:{size:11,color:COL.bandSub},fill:COL.band,align:{indent:1}},3,K);ws.getRow(3).height=22;
+  put(2,B,SO?"RELATÓRIO DE CRONOANÁLISE · BASE SOMADA":"RELATÓRIO DE CRONOANÁLISE",{font:{bold:true,size:18,color:COL.white},fill:COL.band,align:{indent:1}},2,K);ws.getRow(2).height=34;
+  const sub=SO?(()=>{const ds=SO.map(x=>x.data).filter(Boolean).sort();const per=ds.length?(ds[0]===ds[ds.length-1]?dataBR(ds[0]):dataBR(ds[0])+" a "+dataBR(ds[ds.length-1])):"";
+      return [s.operacao,SO.length+" estudos",per,uniq("turno")].filter(Boolean).join("  ·  ");})():[s.nome,s.operacao,dataBR(s.data)].filter(Boolean).join("  ·  ");
+  put(3,B,sub,{font:{size:11,color:COL.bandSub},fill:COL.band,align:{indent:1}},3,K);ws.getRow(3).height=22;
   range(4,B,4,K,c=>c.fill=fill(COL.accent));ws.getRow(4).height=4;
   ws.getRow(5).height=6;
 
   // identificação: 3 linhas × 3 pares
-  const idPairs=[["Posto / local",s.posto],["Operador",s.operador],["Turno",s.turno],
+  const idPairs=SO?[["Posto / local",uniq("posto")],["Operadores",uniq("operador")],["Turnos",uniq("turno")],
+    ["Perfil / grupo",uniq("perfil")],["Analistas",uniq("analista")],["Unidade",u],
+    ["Pessoas",st.N],["Horas disp./dia",st.horas],["Demanda diária",st.dem>0?st.dem:"—"]]
+   :[["Posto / local",s.posto],["Operador",s.operador],["Turno",s.turno],
     ["Perfil / grupo",s.perfil],["Analista",s.analista],["Unidade",u],
     ["Pessoas",st.N],["Horas disp./dia",st.horas],["Demanda diária",st.dem>0?st.dem:"—"]];
   const slots=[[B,B,3,4],[5,5,6,7],[8,9,10,K]];
@@ -621,8 +629,9 @@ async function build(s,ExcelJS,opts={}){
   });
   ws.getRow(9).height=6;
 
+  const r0=10;
   // indicadores
-  r=section(10,"INDICADORES-CHAVE");
+  r=section(r0,"INDICADORES-CHAVE");
   const kpis=[
     {l:"Tempo padrão por "+u1,v:r2(st.tpUn),nf:nf2,u:"segundos · ciclo médio "+fmtN(st.tpCiclo,1)+" s"},
     {l:"Produtividade padrão",v:r2(P.prod,1),nf:nf1,u:u+"/h·h · sem NC"},
@@ -669,6 +678,14 @@ async function build(s,ExcelJS,opts={}){
   r+=2;
 
   // ---- página 2: causas ----
+  // base somada: de onde vieram os ciclos (topo da página 2, cresce com o número de estudos)
+  if(SO){
+    r=section(r,"ESTUDOS INCLUÍDOS");
+    const inc=SO.map(x=>{const sx=C.stats(x);return {v:[x.nome,dataBR(x.data),x.turno||"",x.operador||"",x.perfil||"",sx.ciclos.length,sx.amostra.n],h:estH(x.nome,30,17)};});
+    const end=table(ws,r,B,[{t:"Estudo",wrap:true},{t:"Data",al:"center"},{t:"Turno",span:2,al:"center"},{t:"Operador",span:2},{t:"Perfil",span:2},{t:"Ciclos",nf:nf0},{t:"Válidos",nf:nf0}],
+      inc.concat([{v:["Total","","","","",st.ciclos.length,st.amostra.n],font:{bold:true}}]),{headH:20});
+    ws.getRow(end+1).height=8;r=end+2;
+  }
   r=section(r,"NÃO CONFORMIDADES");
   put(r,B,st.nc.n?`${st.nc.n} ${st.nc.n===1?"ocorrência":"ocorrências"} · ${fmtN(st.nc.total,1)} s · ${fmtN(st.nc.pctObs,1)}% do tempo observado · ${st.nc.ciclosAfet} de ${st.ciclos.length} ciclos afetados`:"Nenhuma não conformidade registrada neste estudo.",{font:{size:10,bold:!!st.nc.n,color:st.nc.n?COL.bad:COL.muted}},r,K);
   ws.getRow(r).height=20;r++;
@@ -697,7 +714,8 @@ async function build(s,ExcelJS,opts={}){
   /* ===== Aba 2: Ciclos ===== */
   const els=s.elementos;
   const wc=wb.addWorksheet("Ciclos",{views:[{state:"frozen",ySplit:4,xSplit:1,showGridLines:false}]});
-  const cc2=[{t:"Ciclo",nf:nf0,al:"center"},...els.map(e=>({t:e.nome,nf:nf2})),{t:"Tempo do ciclo (s)",nf:nf2},{t:"Quantidade ("+u+")",nf:"#,##0.##"},{t:"s por "+u1,nf:nf2},{t:"NC (s)",nf:nf1},{t:"Situação",al:"center"},{t:"Observações",wrap:true}];
+  const O=SO?3:0;
+  const cc2=[{t:"Ciclo",nf:nf0,al:"center"},...(SO?[{t:"Estudo"},{t:"Data",al:"center"},{t:"Turno",al:"center"}]:[]),...els.map(e=>({t:e.nome,nf:nf2})),{t:"Tempo do ciclo (s)",nf:nf2},{t:"Quantidade ("+u+")",nf:"#,##0.##"},{t:"s por "+u1,nf:nf2},{t:"NC (s)",nf:nf1},{t:"Situação",al:"center"},{t:"Observações",wrap:true}];
   const nC=cc2.length;
   sheetTitle(wc,"Ciclos cronometrados",`${s.nome||""} · tempos em segundos · quantidade em ${u}`,nC);
   const crow=st.ciclos.map(x=>{
@@ -707,23 +725,25 @@ async function build(s,ExcelJS,opts={}){
     c.leituras.forEach(l=>{if(l.obs)obs.push(nomeEl(s,l.elId)+": "+l.obs);});
     c.ncs.forEach(n=>obs.push("NC "+(n.tipo||"não classificada")+" ("+fmtN(n.t,1)+" s)"+(n.obs?": "+n.obs:"")));
     const ff={},cf={},E=els.length;
-    els.forEach((e,i)=>{if(c.leituras.some(l=>l.elId===e.id&&C.excl(s,l))){ff[1+i]={color:COL.warn,italic:true};cf[1+i]=COL.warnSoft;}});
-    if(x.ncN)ff[E+4]={bold:true,color:COL.bad};
-    ff[E+5]=x.valido?{color:COL.ok,bold:true}:{color:COL.grey};
+    els.forEach((e,i)=>{if(c.leituras.some(l=>l.elId===e.id&&C.excl(s,l))){ff[1+O+i]={color:COL.warn,italic:true};cf[1+O+i]=COL.warnSoft;}});
+    if(x.ncN)ff[E+4+O]={bold:true,color:COL.bad};
+    ff[E+5+O]=x.valido?{color:COL.ok,bold:true}:{color:COL.grey};
     const ot=obs.join("\n");
-    return {v:[x.n,...cel,r2(x.tempo),x.q,r2(x.sUn),x.ncT?r2(x.ncT,1):null,x.valido?"Válido":(!x.completo?"Incompleto":!x.q?"Sem qtd.":"Com NC / anormal"),ot],cellFont:ff,cellFill:cf,h:estH(ot,56,18)};
+    const src=c._src||{};
+    return {v:[x.n,...(SO?[src.nome||"",dataBR(src.data),src.turno||""]:[]),...cel,r2(x.tempo),x.q,r2(x.sUn),x.ncT?r2(x.ncT,1):null,x.valido?"Válido":(!x.completo?"Incompleto":!x.q?"Sem qtd.":"Com NC / anormal"),ot],cellFont:ff,cellFill:cf,h:estH(ot,56,18)};
   });
   const cEnd=table(wc,4,1,cc2,crow,{headH:36});
-  wc.getColumn(1).width=8;els.forEach((e,i)=>wc.getColumn(2+i).width=Math.max(11,Math.min(18,e.nome.length*0.55+4)));
-  [12,13,11,10,16,58].forEach((w,i)=>wc.getColumn(2+els.length+i).width=w);
+  wc.getColumn(1).width=8;if(SO){wc.getColumn(2).width=26;wc.getColumn(3).width=11;wc.getColumn(4).width=12;}
+  els.forEach((e,i)=>wc.getColumn(2+O+i).width=Math.max(11,Math.min(18,e.nome.length*0.55+4)));
+  [12,13,11,10,16,58].forEach((w,i)=>wc.getColumn(2+O+els.length+i).width=w);
   if(st.ciclos.length){
     const rr=cEnd+1,L=c=>wc.getColumn(c).letter;
     for(let c=1;c<=nC;c++){const x=wc.getCell(rr,c);x.font=font({bold:true,size:9.5});x.fill=fill(COL.label);x.border=Object.assign({},bdr,{top:side(COL.band,"medium")});x.alignment={vertical:"middle",horizontal:c===1?"center":"right"};}
     wc.getCell(rr,1).value="Média";
-    [...els.map((e,i)=>2+i),2+els.length,3+els.length,4+els.length].forEach(c=>{
+    [...els.map((e,i)=>2+O+i),2+O+els.length,3+O+els.length,4+O+els.length].forEach(c=>{
       const vals=crow.map(o=>o.v[c-1]).filter(v=>typeof v==="number");const res=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:null;
       const x=wc.getCell(rr,c);x.value=vals.length?{formula:`IFERROR(AVERAGE(${L(c)}5:${L(c)}${cEnd}),"")`,result:r2(res)}:"";x.numFmt=cc2[c-1].nf;});
-    const cNC=5+els.length,sumT=crow.reduce((a,o)=>a+(o.v[cNC-1]||0),0);
+    const cNC=5+O+els.length,sumT=crow.reduce((a,o)=>a+(o.v[cNC-1]||0),0);
     wc.getCell(rr,cNC).value={formula:`SUM(${L(cNC)}5:${L(cNC)}${cEnd})`,result:r2(sumT,1)};wc.getCell(rr,cNC).numFmt=nf1;
     wc.autoFilter={from:{row:4,column:1},to:{row:cEnd,column:nC}};
     setupPage(wc,true,nC,rr,titulo);
@@ -741,8 +761,8 @@ async function build(s,ExcelJS,opts={}){
   }else mk(wn).put(4,1,"Nenhuma não conformidade registrada.",{font:{italic:true,color:COL.muted}},4,5);
   setupPage(wn,false,5,nEnd,titulo);
 
-  addDadosSheets(wb,s,titulo);
-  embedStudies(wb,[s]);
+  addDadosSheets(wb,s,titulo,{pivot:!SO});
+  embedStudies(wb,SO||[s]);
   return wb;
 }
 /* ---------------- estudo embutido (para importar no app) ---------------- */
@@ -775,18 +795,21 @@ function dadosTable(s){
       const sit=parcial?"Parcial":anormal?"Anormal":nc>0?"Com NC":"Válida";
       const tipos=[...new Set(c.ncs.filter(x=>x.elId===elId).map(x=>x.tipo||"Não classificada"))].join(", ");
       const q=C.num(c.qtd);
-      rows.push([s.nome||"",dataBR(s.data),s.operacao||"",s.turno||"",s.perfil||"",s.operador||"",c.n,i+1,nomeEl(s,elId),r2(t),q>0?q:null,nc>0?r2(nc,1):null,nc>0?tipos:"",sit,ls.some(l=>C.excl(s,l))?"Não":"Sim",(anormal||parcial)?"Não":"Sim",ls.map(l=>l.obs).filter(Boolean).join("; ")]);
+      const o=c._src||s;
+      rows.push([o.nome||"",dataBR(o.data),o.operacao||s.operacao||"",o.turno||"",o.perfil||"",o.operador||"",c.n,i+1,nomeEl(s,elId),r2(t),q>0?q:null,nc>0?r2(nc,1):null,nc>0?tipos:"",sit,ls.some(l=>C.excl(s,l))?"Não":"Sim",(anormal||parcial)?"Não":"Sim",ls.map(l=>l.obs).filter(Boolean).join("; ")]);
     });
   });
   return {head,rows,numCols:new Set([6,7,9,10,11]),rowField:8,colField:13,dataField:9};
 }
-function addDadosSheets(wb,s,titulo){
+function addDadosSheets(wb,s,titulo,o={}){
   const D=dadosTable(s);if(!D.rows.length)return null;
+  if(o.pivot!==false){
   const wp=wb.addWorksheet("Dinâmica",{views:[{showGridLines:false}]});
   wp.getCell(1,1).value="TABELA DINÂMICA · tempo médio por elemento (s)";wp.getCell(1,1).font=font({bold:true,size:13,color:COL.band});
   wp.getCell(2,1).value="Colunas separam as leituras por situação. Use o painel de campos para trocar ou incluir turno, operador e tipo de NC. Fonte: aba Dados.";
   wp.getCell(2,1).font=font({size:9,italic:true,color:COL.muted});
   wp.getColumn(1).width=34;for(let c=2;c<=7;c++)wp.getColumn(c).width=13;
+  }
   const wd=wb.addWorksheet("Dados",{views:[{state:"frozen",ySplit:1,showGridLines:true}]});
   wd.addRow(D.head);
   D.rows.forEach(r=>wd.addRow(r.map(v=>v===""?null:v)));
@@ -908,7 +931,8 @@ function merge(list,nome){
   const byName={};
   list.forEach(s=>s.elementos.forEach(e=>{const k=e.nome.trim();if(!byName[k]){byName[k]={id:"g"+m.elementos.length,nome:k};m.elementos.push(byName[k]);}}));
   list.forEach(s=>{const map={};s.elementos.forEach(e=>map[e.id]=byName[e.nome.trim()].id);
-    s.ciclos.forEach(c=>m.ciclos.push(Object.assign({},c,{n:m.ciclos.length+1,
+    const src={nome:s.nome,data:s.data,turno:s.turno,operador:s.operador,perfil:s.perfil,operacao:s.operacao};
+    s.ciclos.forEach(c=>m.ciclos.push(Object.assign({},c,{n:m.ciclos.length+1,_src:c._src||src,
       leituras:c.leituras.map(l=>Object.assign({},l,{elId:map[l.elId]||l.elId})),
       ncs:c.ncs.map(x=>Object.assign({},x,{elId:map[x.elId]||x.elId}))})));});
   return C.normalize(m);
@@ -1092,14 +1116,32 @@ async function build(studies,ExcelJS,JSZip,opts={}){
   if(D.rows.length&&JSZip){try{buf=await R.pivotFromTable(buf,D,JSZip,{rowOrder:elNames,colOrder:G.map(x=>x.lab),colCaption:gDef[1],pageField:14,pageItem:"Sim"});}catch(e){console.error("tabela dinâmica",e);}}
   return buf;
 }
-return {GRUPOS,labelOf,merge,groups,check,build};
+// Base somada: todos os ciclos juntos, com os parâmetros escolhidos para o resultado final.
+function ordenar(studies){return studies.slice().sort((a,b)=>String(a.data||"").localeCompare(String(b.data||""))||String(a.turno||"").localeCompare(String(b.turno||""),"pt-BR",{numeric:true}));}
+function periodo(studies){const ds=studies.map(s=>s.data).filter(Boolean).sort();return {d1:ds[0]||"",d2:ds[ds.length-1]||""};}
+function somar(studies,p){
+  const L=ordenar(studies);
+  const ops=[...new Set(L.map(s=>String(s.operacao||"").trim()).filter(Boolean))];
+  const op=ops.join(" + ")||"Estudos";
+  const m=merge(L,"Base somada · "+op);
+  m.operacao=op;m.data=periodo(L).d1;
+  if(p){if(p.pessoas!==""&&p.pessoas!=null)m.pessoas=p.pessoas;if(p.horasDia!==""&&p.horasDia!=null)m.horasDia=p.horasDia;m.demanda=p.demanda??"";}
+  m.obsGeral=L.filter(s=>String(s.obsGeral||"").trim()).map(s=>s.nome+": "+String(s.obsGeral).trim()).join("\n");
+  return m;
+}
+// Elementos que não aparecem em todos os estudos (nomes diferentes)
+function elemDiff(studies){
+  const all=[];studies.forEach(s=>s.elementos.forEach(e=>{const k=e.nome.trim();if(!all.includes(k))all.push(k);}));
+  return all.map(n=>({nome:n,faltaEm:studies.filter(s=>!s.elementos.some(e=>e.nome.trim()===n)).map(s=>s.nome)})).filter(x=>x.faltaEm.length);
+}
+return {GRUPOS,labelOf,merge,groups,check,build,somar,elemDiff,ordenar,periodo};
 })();
 
 </script>
 <script>
 (function(){
 "use strict";
-const C=window.CronoCore,PWA=!!window.CRONO_PWA,VERSAO="3.1";
+const C=window.CronoCore,PWA=!!window.CRONO_PWA,VERSAO="3.3";
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
@@ -1128,6 +1170,8 @@ const ic=(n,sz=22)=>`<svg class="ic" width="${sz}" height="${sz}" viewBox="0 0 2
 
 /* ---------- estado ---------- */
 let studies={},curId=null,view="home",homeTab="estudos",tab="estudo",store=null,confirmDel=false,showAll=false,confirmEnd=null,ncAdding=false;
+let consolMode="somar",somaP=null,somaKey="";
+let selMode=false,delSel=new Set(),confirmBulk=false;
 let busca="",consolSel=new Set(),consolBy="turno",installEvt=null,swWaiting=null;
 let cfg={tiposNC:C.NC_PADRAO.slice()};
 const drafts={obs:"",qty:""};
@@ -1268,6 +1312,7 @@ function goHome(){
   view="home";confirmDel=false;render();window.scrollTo(0,0);return true;
 }
 window.addEventListener("popstate",()=>{
+  if(view==="soma"){view="home";homeTab="consolidar";render();window.scrollTo(0,0);return;}
   if(view==="study"){if(!goHome()){try{history.pushState({v:"study"},"");}catch(e){}}}
 });
 
@@ -1275,10 +1320,18 @@ window.addEventListener("popstate",()=>{
 function render(){
   const s=cur();
   if(view==="study"&&!s)view="home";
+  if(view==="soma"&&selected().length<2)view="home";
   renderBar();renderTabbar();
   const app=$("#app");
-  document.body.dataset.view=view==="home"?homeTab:tab;
-  if(view==="home"){
+  document.body.dataset.view=view==="study"?tab:view==="soma"?"soma":homeTab;
+  if(view==="soma"){
+    const m=somaStudy();
+    app.innerHTML=`<section class="panel" id="panel"></section>`;
+    renderResult(m,{soma:true});
+    const L=window.CronoConsol.ordenar(selected());
+    $("#panel").insertAdjacentHTML("afterbegin",`<div class="group"><div class="group-h">Estudos incluídos<span>${L.length}</span></div><div class="list">${L.map(x=>`<div class="item"><span class="item-main"><b>${esc(x.nome)}</b><small>${[dataBR(x.data),x.turno,x.operador].filter(Boolean).map(esc).join(" · ")}</small></span><span class="item-meta">${x.ciclos.length} ciclos</span></div>`).join("")}</div>
+      <p class="hint pad">Parâmetros: ${esc(String(m.pessoas))} ${+m.pessoas>1?"pessoas":"pessoa"} · ${esc(fmt(+m.horasDia,1))} h/dia${+m.demanda>0?` · demanda ${esc(fmt(+m.demanda,0))} ${esc(C.unidade(m))}/dia`:""}. Para mudar, volte e ajuste.</p></div>`);
+  }else if(view==="home"){
     const t={estudos:"Estudos",consolidar:"Consolidar",ajustes:"Ajustes"}[homeTab];
     app.innerHTML=`<h1 class="large">${t}</h1>`+(homeTab==="estudos"?homeList():homeTab==="consolidar"?consolView():settingsView());
   }else{
@@ -1290,19 +1343,24 @@ function render(){
 }
 function renderBar(){
   const bar=$("#bar"),s=cur();
-  if(view==="home"){
+  if(view==="soma"){
+    bar.innerHTML=`<div class="bar-in"><button class="bar-btn back" data-act="somaback" aria-label="Voltar">${ic("back")}<span>Consolidar</span></button>
+      <span class="bar-title"><b>Base somada</b><small>${selected().length} estudos</small></span><span class="bar-sp"></span></div>`;
+  }else if(view==="home"){
     bar.innerHTML=`<div class="bar-in"><span class="bar-brand">${ic("timer",20)} Cronoanálise</span><span class="bar-sp"></span>
-      ${homeTab==="estudos"?`<button class="bar-btn" id="newBtn" aria-label="Novo estudo">${ic("plus")}</button>`:""}</div>`;
+      ${homeTab==="estudos"&&Object.keys(studies).length?`<button class="bar-btn txt" data-act="selmode">${selMode?"OK":"Selecionar"}</button>`:""}
+      ${homeTab==="estudos"&&!selMode?`<button class="bar-btn" id="newBtn" aria-label="Novo estudo">${ic("plus")}</button>`:""}</div>`;
   }else{
     bar.innerHTML=`<div class="bar-in"><button class="bar-btn back" data-act="home" aria-label="Voltar aos estudos" ${timer.cycle?'aria-disabled="true"':""}>${ic("back")}<span>Estudos</span></button>
       <span class="bar-title"><b>${esc(s.nome)}</b><small id="saveState">${esc(saveTxt)}</small></span><span class="bar-sp"></span></div>`;
   }
 }
 function renderTabbar(){
-  const items=view==="home"?[["estudos","Estudos","list"],["consolidar","Consolidar","merge"],["ajustes","Ajustes","gear"]]
+  const home=view!=="study";
+  const items=home?[["estudos","Estudos","list"],["consolidar","Consolidar","merge"],["ajustes","Ajustes","gear"]]
     :[["estudo","Estudo","doc"],["crono","Cronometrar","timer"],["result","Resultados","chart"]];
-  const act=view==="home"?homeTab:tab;
-  $("#tabbar").innerHTML=items.map(([k,l,i])=>`<button data-${view==="home"?"htab":"tab"}="${k}" aria-current="${act===k?"page":"false"}">${ic(i,24)}<span>${l}${k==="crono"&&timer.cycle?' <i class="dot"></i>':""}</span></button>`).join("");
+  const act=home?homeTab:tab;
+  $("#tabbar").innerHTML=items.map(([k,l,i])=>`<button data-${home?"htab":"tab"}="${k}" aria-current="${act===k?"page":"false"}">${ic(i,24)}<span>${l}${k==="crono"&&timer.cycle?' <i class="dot"></i>':""}</span></button>`).join("");
 }
 
 /* ---------- início: lista de estudos ---------- */
@@ -1325,13 +1383,28 @@ function homeList(){
   ${Object.keys(grupos).length?Object.entries(grupos).map(([op,list])=>`<div class="group">
     <div class="group-h">${esc(op)}<span>${list.length}</span></div>
     <div class="list">${list.map(s=>{const n=s.ciclos.length;const sub=[dataBR(s.data),s.turno,s.operador,s.perfil].filter(Boolean).map(esc).join(" · ");
-      return `<button class="item" data-open="${s.id}"><span class="item-main"><b>${esc(s.nome)}</b><small>${sub||"Sem detalhes"}</small></span>
-        <span class="item-meta">${n?`${n} ${n===1?"ciclo":"ciclos"}`:"vazio"}</span>${ic("chev",18)}</button>`;}).join("")}</div></div>`).join("")
+      const main=`<span class="item-main"><b>${esc(s.nome)}</b><small>${sub||"Sem detalhes"}</small></span><span class="item-meta">${n?`${n} ${n===1?"ciclo":"ciclos"}`:"vazio"}</span>`;
+      if(selMode){const busy=timer.cycle&&s.id===curId;
+        return `<label class="item check-item"><input type="checkbox" data-dsel="${s.id}" ${delSel.has(s.id)?"checked":""} ${busy?"disabled":""}>${main}</label>`;}
+      return `<button class="item" data-open="${s.id}">${main}${ic("chev",18)}</button>`;}).join("")}</div></div>`).join("")
     :`<p class="hint center">Nenhum estudo encontrado para “${esc(busca)}”.</p>`}
-  <p class="hint center foot">Os estudos ficam salvos neste aparelho. Faça backup em Ajustes.</p>`;
+  ${selMode?`<div class="sticky-act">
+    ${confirmBulk&&delSel.size?`<div class="confirm"><span>Excluir ${delSel.size} ${delSel.size===1?"estudo":"estudos"} e todas as leituras? Não dá para desfazer.</span>
+      <button class="btn danger" data-act="bulkyes">Excluir</button><button class="btn" data-act="bulkno">Cancelar</button></div>`
+    :`<button class="btn danger wide" data-act="bulkdel" ${delSel.size?"":"disabled"}>Excluir ${delSel.size||""} ${delSel.size===1?"estudo":"estudos"}</button>`}
+    <button class="btn plain" data-act="selall">${ids.every(id=>delSel.has(id))?"Limpar seleção":"Selecionar todos"}</button></div>`
+  :`<p class="hint center foot">Os estudos ficam salvos neste aparelho. Faça backup em Ajustes. Para apagar estudos de teste, toque em Selecionar.</p>`}`;
 }
 
 /* ---------- consolidar ---------- */
+const selected=()=>sortedIds().filter(id=>consolSel.has(id)&&studies[id]&&studies[id].ciclos.length).map(id=>studies[id]);
+function syncSomaP(sel){
+  const key=sel.map(s=>s.id).sort().join(",");
+  if(!sel.length){somaP=null;somaKey="";return;}
+  if(!somaP||!somaKey){const f=window.CronoConsol.ordenar(sel)[0];somaP={pessoas:f.pessoas,horasDia:f.horasDia,demanda:f.demanda};}
+  somaKey=key;
+}
+function somaStudy(){return window.CronoConsol.somar(selected(),somaP);}
 function consolView(){
   const ids=sortedIds().filter(id=>studies[id].ciclos.length);
   if(ids.length<2)return `<div class="empty"><div class="empty-ic">${ic("merge",44)}</div><h2>Junte estudos da mesma operação</h2>
@@ -1352,16 +1425,41 @@ function consolView(){
       <tbody>${rows.map(([l,n,st],i)=>`<tr ${i===rows.length-1&&G.length>1?'class="tot"':""}><td>${esc(l)}</td><td class="num">${n}</td><td class="num">${st.amostra.n}</td><td class="num">${fmt(st.cenarios.padrao.prod,1)}</td><td class="num">${fmt(st.cenarios.real.prod,1)}</td></tr>`).join("")}</tbody></table></div>`;
     const w=CC.check(sel);if(w.length)prev+=`<div class="note warn">${w.map(esc).join("<br>")}</div>`;
   }
-  return `<p class="hint pad">Escolha os estudos da mesma operação. O relatório compara os grupos e soma tudo numa coluna Total.</p>
-  <div class="field"><span class="label">Comparar por</span>
-    <div class="seg" role="radiogroup">${(CC?CC.GRUPOS:[]).map(([k,l])=>`<button role="radio" data-by="${k}" aria-checked="${consolBy===k}">${l.replace(" / grupo","")}</button>`).join("")}</div></div>
+  const soma=consolMode==="somar";
+  let somaBox="";
+  if(soma){
+    syncSomaP(sel);
+    if(sel.length>=2&&CC){
+      const w=[];const us=[...new Set(sel.map(s=>C.unidade(s)))];if(us.length>1)w.push("Unidades diferentes ("+us.map(esc).join(", ")+"): o tempo por unidade não é comparável.");
+      const ops=[...new Set(sel.map(s=>String(s.operacao||"").trim()).filter(Boolean))];if(ops.length>1)w.push("Operações diferentes: "+ops.map(esc).join(", ")+".");
+      const d=CC.elemDiff(sel);
+      if(d.length)w.push("<b>Elementos com nomes diferentes.</b> Corrija o nome no estudo de origem para eles serem somados juntos:<br>"+d.map(x=>`“${esc(x.nome)}” não aparece em ${x.faltaEm.map(esc).join(", ")}`).join("<br>"));
+      const m=somaStudy(),st=C.stats(m);
+      somaBox=`${w.length?`<div class="note warn">${w.join("<br>")}</div>`:""}
+      <div class="box"><h2>Parâmetros do resultado</h2>
+        <div class="grid2">
+          <label class="field"><span class="label">Pessoas na atividade</span><input data-sp="pessoas" type="number" min="1" step="1" inputmode="numeric" value="${esc(somaP.pessoas)}"></label>
+          <label class="field"><span class="label">Horas disp. por pessoa/dia</span><input data-sp="horasDia" type="number" min="1" max="24" step="0.1" inputmode="decimal" value="${esc(somaP.horasDia)}"></label>
+          <label class="field"><span class="label">Demanda diária (${esc(C.unidade(sel[0]))})</span><input data-sp="demanda" type="number" min="0" step="any" inputmode="decimal" placeholder="opcional" value="${esc(somaP.demanda)}"></label>
+        </div>
+        <p class="hint" style="margin-top:8px">Vêm do primeiro estudo. Ajuste para o cenário que quer avaliar.</p></div>
+      <div class="kv box"><div><span class="label">Ciclos</span><b>${st.ciclos.length}</b></div><div><span class="label">Válidos</span><b>${st.amostra.n}</b></div><div><span class="label">Necessários</span><b>${Number.isFinite(st.amostra.nNec)?st.amostra.nNec:"–"}</b></div><div><span class="label">CV</span><b>${fmt(st.amostra.cv,1)}%</b></div></div>`;
+    }
+  }
+  return `<div class="seg" role="radiogroup" aria-label="Modo">
+    <button role="radio" data-cmode="somar" aria-checked="${soma}">Somar estudos</button>
+    <button role="radio" data-cmode="comparar" aria-checked="${!soma}">Comparar</button></div>
+  <p class="hint pad">${soma?"Junta todos os ciclos dos estudos marcados num único resultado, como se fossem um estudo só.":"Compara os grupos lado a lado e soma tudo numa coluna Total."}</p>
+  ${soma?"":`<div class="field"><span class="label">Comparar por</span>
+    <div class="seg" role="radiogroup">${(CC?CC.GRUPOS:[]).map(([k,l])=>`<button role="radio" data-by="${k}" aria-checked="${consolBy===k}">${l.replace(" / grupo","")}</button>`).join("")}</div></div>`}
   ${Object.entries(grupos).map(([op,list])=>{const all=list.every(s=>consolSel.has(s.id));return `<div class="group">
     <div class="group-h">${esc(op)}<button class="link" data-selop="${esc(op)}">${all?"Limpar":"Selecionar todos"}</button></div>
     <div class="list">${list.map(s=>`<label class="item check-item"><input type="checkbox" data-sel="${s.id}" ${consolSel.has(s.id)?"checked":""}>
       <span class="item-main"><b>${esc(s.nome)}</b><small>${[dataBR(s.data),s.turno,s.operador,s.perfil].filter(Boolean).map(esc).join(" · ")}</small></span>
       <span class="item-meta">${s.ciclos.length} ciclos</span></label>`).join("")}</div></div>`;}).join("")}
-  ${prev}
-  <div class="sticky-act"><button class="btn primary wide" data-act="consol" ${sel.length>=2?"":"disabled"}>${ic(canShareFiles()?"share":"down",20)} Gerar Excel consolidado${sel.length?` (${sel.length})`:""}</button>
+  ${soma?somaBox:prev}
+  <div class="sticky-act">${soma?`<button class="btn primary wide" data-act="somaview" ${sel.length>=2?"":"disabled"}>${ic("chart",20)} Ver resultado somado${sel.length?` (${sel.length})`:""}</button>`
+   :`<button class="btn primary wide" data-act="consol" ${sel.length>=2?"":"disabled"}>${ic(canShareFiles()?"share":"down",20)} Gerar Excel consolidado${sel.length?` (${sel.length})`:""}</button>`}
   <p class="hint center" id="consolMsg" aria-live="polite"></p></div>`;
 }
 
@@ -1557,7 +1655,7 @@ function cycleCard(s,c){
     </div>${rows}${ncs}</div>`;
 }
 
-function renderResult(s){
+function renderResult(s,ro={}){
   const st=C.stats(s),u=C.unidade(s),u1=C.sing(s);
   const ok=(n,need)=>Number.isFinite(need)?(n>=need?`<span class="pill ok">ok</span>`:`<span class="pill warn">+${need-n}</span>`):`<span class="pill warn">poucas</span>`;
   const a=st.amostra;
@@ -1571,11 +1669,11 @@ function renderResult(s){
     ${st.dem>0?`<div class="kpi"><div class="label">Pessoas p/ demanda</div><div class="v">${fmt(st.pessoasNec,2)}</div><div class="u">${fmt(st.dem,0)} ${esc(u)}/dia → ${Number.isFinite(st.pessoasNec)?Math.ceil(st.pessoasNec-1e-9):"–"} pessoas</div></div>`:""}
     <div class="kpi ${st.nc.n?"alert":""}"><div class="label">Perda em NC</div><div class="v">${fmt(st.nc.pctObs,1)}%</div><div class="u">${st.nc.n} ${st.nc.n===1?"ocorrência":"ocorrências"} · ${fmt(st.nc.total,0)} s</div></div>
   </div>
-  ${st.comQ<st.completos?`<div class="note warn">${st.completos-st.comQ} ciclo(s) completo(s) sem quantidade. Informe as ${esc(u)} na aba Cronometrar para entrarem na produtividade.</div>`:""}
+  ${st.comQ<st.completos?`<div class="note warn">${st.completos-st.comQ} ciclo(s) completo(s) sem quantidade. Informe as ${esc(u)} na aba Cronometrar${ro.soma?" do estudo de origem":""} para entrarem na produtividade.</div>`:""}
   <div class="export">
-    ${PWA&&canShareFiles()?`<button class="btn primary wide" data-act="xlsx">${ic("share",20)} Compartilhar relatório em Excel</button>
-    <button class="btn plain" data-act="xlsxdl">${ic("down",16)} Baixar o arquivo em vez de compartilhar</button>`
-    :`<button class="btn primary wide" data-act="xlsx">${ic("down",20)} ${PWA?"Baixar":"Exportar"} relatório em Excel</button>`}
+    ${PWA&&canShareFiles()?`<button class="btn primary wide" data-act="${ro.soma?"somaxlsx":"xlsx"}">${ic("share",20)} Compartilhar relatório em Excel</button>
+    <button class="btn plain" data-act="${ro.soma?"somaxlsxdl":"xlsxdl"}">${ic("down",16)} Baixar o arquivo em vez de compartilhar</button>`
+    :`<button class="btn primary wide" data-act="${ro.soma?"somaxlsx":"xlsx"}">${ic("down",20)} ${PWA?"Baixar":"Exportar"} relatório em Excel</button>`}
     <p class="hint center" id="xlsxMsg" aria-live="polite"></p>
   </div>
   ${cenBox(st,u,u1)}
@@ -1743,7 +1841,7 @@ function resetTimer(){timer.nc=null;halt();Object.assign(timer,{actAcc:0,lapStar
 
 /* ---------- arquivos ---------- */
 const XLSX_MIME="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const safeName=t=>t.replace(/[^\w\- .()À-ú]/g,"-").replace(/\s+/g," ").trim();
+const safeName=t=>String(t).replace(/[ºª°]/g,"o").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^\w\- .()]/g,"-").replace(/-+(?= )|(?<= )-+/g,"-").replace(/\s+/g," ").replace(/(- )+/g,"- ").trim();
 let dlPromise=null;
 function getDownloads(){if(!dlPromise)dlPromise=PWA||!window.claude?Promise.resolve(null):Promise.resolve().then(()=>window.claude.use("downloads")).catch(()=>null);return dlPromise;}
 function anchorDownload(blob,fname){const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),8000);}
@@ -1803,6 +1901,17 @@ async function exportConsol(){
   const r=await saveFile(new Blob([buf],{type:XLSX_MIME}),fname);
   if(msg)msg.textContent=saveMsg(r);
 }
+async function exportSoma(forceDownload){
+  const sel=selected(),msg=$("#xlsxMsg");
+  if(sel.length<2||!window.ExcelJS)return;
+  const m=somaStudy();
+  const wb=await window.CronoReport.build(m,window.ExcelJS,{somado:{studies:window.CronoConsol.ordenar(sel)}});
+  const buf=await wb.xlsx.writeBuffer();
+  const {d1,d2}=window.CronoConsol.periodo(sel);
+  const fname=safeName("Cronoanalise somada - "+m.operacao+" - "+(d1===d2?d1:d1+" a "+d2))+".xlsx";
+  const r=await saveFile(new Blob([buf],{type:XLSX_MIME}),fname,forceDownload);
+  if(msg)msg.textContent=saveMsg(r);if(r!=="cancel")toast("Relatório gerado");
+}
 async function backup(){
   const data={app:"cronoanalise",v:1,exportado:new Date().toISOString(),cfg:{tiposNC:cfg.tiposNC.slice()},estudos:sortedIds().map(id=>studies[id])};
   const r=await saveFile(new Blob([JSON.stringify(data)],{type:"application/json"}),"Cronoanalise - backup - "+today()+".json");
@@ -1847,10 +1956,11 @@ document.addEventListener("click",async ev=>{
   const s=cur();
   if(b.id==="newBtn")return newStudy(blankStudy("Estudo "+(Object.keys(studies).length+1)));
   if(b.id==="markBtn")return mark();
-  if(b.dataset.htab){homeTab=b.dataset.htab;render();window.scrollTo(0,0);return;}
+  if(b.dataset.htab){if(view==="study")return;view="home";homeTab=b.dataset.htab;selMode=false;delSel.clear();confirmBulk=false;render();window.scrollTo(0,0);return;}
   if(b.dataset.tab){if(view!=="study")return;tab=b.dataset.tab;confirmDel=false;render();window.scrollTo(0,0);return;}
   if(b.dataset.open)return openStudy(b.dataset.open,b.dataset.otab);
   if(b.dataset.by){consolBy=b.dataset.by;return render();}
+  if(b.dataset.cmode){consolMode=b.dataset.cmode;return render();}
   if(b.dataset.selop!=null){const op=b.dataset.selop;const ids=sortedIds().filter(id=>studies[id].ciclos.length&&((String(studies[id].operacao||"").trim()||"Sem operação")===op));
     const all=ids.every(id=>consolSel.has(id));ids.forEach(id=>all?consolSel.delete(id):consolSel.add(id));return render();}
   if(b.dataset.deltipo!=null){cfg.tiposNC.splice(+b.dataset.deltipo,1);saveCfg();return render();}
@@ -1861,11 +1971,22 @@ document.addEventListener("click",async ev=>{
     case "new":return newStudy(blankStudy("Estudo 1"));
     case "example":return newStudy(exampleStudy());
     case "import":return $("#fileIn").click();
+    case "selmode":{selMode=!selMode;delSel.clear();confirmBulk=false;return render();}
+    case "selall":{const ids=sortedIds().filter(id=>!(timer.cycle&&id===curId));const all=ids.every(id=>delSel.has(id));ids.forEach(id=>all?delSel.delete(id):delSel.add(id));confirmBulk=false;return render();}
+    case "bulkdel":confirmBulk=true;return render();
+    case "bulkno":confirmBulk=false;return render();
+    case "bulkyes":{const n=delSel.size;for(const id of [...delSel]){if(timer.cycle&&id===curId)continue;if(id===curId){resetTimer();curId=null;}await removeStudy(id);}
+      delSel.clear();confirmBulk=false;selMode=false;toast(`${n} ${n===1?"estudo excluído":"estudos excluídos"}`);return render();}
     case "backup":return backup();
     case "addtipo":{if(addTipo($("#novoTipo").value))render();return;}
     case "resettipos":{cfg.tiposNC=C.NC_PADRAO.slice();saveCfg();toast("Lista padrão restaurada");return render();}
     case "install":{if(installEvt){installEvt.prompt();try{await installEvt.userChoice;}catch(e){}installEvt=null;render();}return;}
     case "update":{if(swWaiting)swWaiting.postMessage("skipWaiting");return;}
+    case "somaview":{if(selected().length<2)return;view="soma";try{history.pushState({v:"soma"},"");}catch(e){}render();window.scrollTo(0,0);return;}
+    case "somaback":{let st=null;try{st=history.state;}catch(e){}if(st&&st.v==="soma"){try{history.back();}catch(e){}setTimeout(()=>{if(view==="soma"){view="home";homeTab="consolidar";render();}},300);}else{view="home";homeTab="consolidar";render();}return;}
+    case "somaxlsx":case "somaxlsxdl":{b.disabled=true;const old=b.innerHTML;b.textContent="Gerando planilha…";
+      try{await exportSoma(a==="somaxlsxdl");}catch(e){console.error(e);const m=$("#xlsxMsg");if(m)m.textContent="Não consegui gerar a planilha ("+((e&&e.message)||"erro")+").";}
+      b.disabled=false;b.innerHTML=old;return;}
     case "consol":{b.disabled=true;const old=b.innerHTML;b.textContent="Gerando planilha…";
       try{await exportConsol();}catch(e){console.error(e);const m=$("#consolMsg");if(m)m.textContent="Não consegui gerar o consolidado ("+((e&&e.message)||"erro")+").";}
       b.disabled=false;b.innerHTML=old;return;}
@@ -1922,6 +2043,7 @@ document.addEventListener("click",async ev=>{
 
 document.addEventListener("input",ev=>{
   const t=ev.target;
+  if(t.dataset.sp&&somaP){somaP[t.dataset.sp]=t.value===""?"":+t.value;return;}
   if(t.id==="busca"){busca=t.value;const pos=t.selectionStart;render();const n=$("#busca");if(n){n.focus();try{n.setSelectionRange(pos,pos);}catch(e){}}return;}
   const s=cur();if(!s||view!=="study")return;
   if(t.id==="obsIn"){drafts.obs=t.value;saveTimer();return;}
@@ -1935,7 +2057,8 @@ document.addEventListener("input",ev=>{
 document.addEventListener("change",ev=>{
   const t=ev.target;
   if(t.id==="fileIn"){const fs=[...t.files];t.value="";if(fs.length)importFiles(fs);return;}
-  if(t.dataset.sel){t.checked?consolSel.add(t.dataset.sel):consolSel.delete(t.dataset.sel);return render();}
+  if(t.dataset.dsel){t.checked?delSel.add(t.dataset.dsel):delSel.delete(t.dataset.dsel);confirmBulk=false;return render();}
+  if(t.dataset.sel){t.checked?consolSel.add(t.dataset.sel):consolSel.delete(t.dataset.sel);if(!consolSel.size){somaP=null;somaKey="";}return render();}
   const s=cur();if(!s)return;
   if(t.dataset.f==="unidade"){s.unidade=t.value;scheduleSave(s);return render();}
   if(t.dataset.qty!=null){const c=s.ciclos[+t.dataset.qty];const v=parseQty(t.value);if(c&&v!==undefined){c.qtd=v;scheduleSave(s);render();}else toast("Quantidade inválida");return;}

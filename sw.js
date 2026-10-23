@@ -1,8 +1,9 @@
 // Cronoanálise · service worker: guarda o app no aparelho para abrir sem internet.
-const CACHE="crono-72bcdf34b9";
+const CACHE="crono-1274196447";
 const FILES=["./", "index.html", "manifest.webmanifest", "exceljs.min.js", "jszip.min.js", "icon-192.png", "icon-512.png", "maskable-512.png", "apple-touch-icon.png", "favicon-32.png"];
 self.addEventListener("install",e=>{
-  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)));
+  // Versão nova assume na hora: a página recarrega sozinha (o ciclo em andamento é recuperado).
+  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting()));
 });
 self.addEventListener("activate",e=>{
   e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith("crono-")&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));

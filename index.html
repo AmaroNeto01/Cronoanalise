@@ -1099,7 +1099,7 @@ return {GRUPOS,labelOf,merge,groups,check,build};
 <script>
 (function(){
 "use strict";
-const C=window.CronoCore,PWA=!!window.CRONO_PWA,VERSAO="3.0";
+const C=window.CronoCore,PWA=!!window.CRONO_PWA,VERSAO="3.1";
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
@@ -1361,7 +1361,7 @@ function consolView(){
       <span class="item-main"><b>${esc(s.nome)}</b><small>${[dataBR(s.data),s.turno,s.operador,s.perfil].filter(Boolean).map(esc).join(" · ")}</small></span>
       <span class="item-meta">${s.ciclos.length} ciclos</span></label>`).join("")}</div></div>`;}).join("")}
   ${prev}
-  <div class="sticky-act"><button class="btn primary wide" data-act="consol" ${sel.length>=2?"":"disabled"}>${ic("share",20)} Gerar Excel consolidado${sel.length?` (${sel.length})`:""}</button>
+  <div class="sticky-act"><button class="btn primary wide" data-act="consol" ${sel.length>=2?"":"disabled"}>${ic(canShareFiles()?"share":"down",20)} Gerar Excel consolidado${sel.length?` (${sel.length})`:""}</button>
   <p class="hint center" id="consolMsg" aria-live="polite"></p></div>`;
 }
 
@@ -1573,8 +1573,9 @@ function renderResult(s){
   </div>
   ${st.comQ<st.completos?`<div class="note warn">${st.completos-st.comQ} ciclo(s) completo(s) sem quantidade. Informe as ${esc(u)} na aba Cronometrar para entrarem na produtividade.</div>`:""}
   <div class="export">
-    <button class="btn primary wide" data-act="xlsx">${ic("share",20)} Exportar relatório em Excel</button>
-    ${PWA?`<button class="btn plain" data-act="xlsxdl">${ic("down",16)} Baixar o arquivo em vez de compartilhar</button>`:""}
+    ${PWA&&canShareFiles()?`<button class="btn primary wide" data-act="xlsx">${ic("share",20)} Compartilhar relatório em Excel</button>
+    <button class="btn plain" data-act="xlsxdl">${ic("down",16)} Baixar o arquivo em vez de compartilhar</button>`
+    :`<button class="btn primary wide" data-act="xlsx">${ic("down",20)} ${PWA?"Baixar":"Exportar"} relatório em Excel</button>`}
     <p class="hint center" id="xlsxMsg" aria-live="polite"></p>
   </div>
   ${cenBox(st,u,u1)}
@@ -1753,14 +1754,21 @@ async function saveFile(blob,fname,forceDownload){
     try{const r=await dl.save({filename:fname,data:blob});return r&&r.status==="saved"?"saved":"cancel";}
     catch(e){const c=(e&&e.code)||"erro";if(c==="declined")return "cancel";throw new Error(c);}
   }
-  if(!forceDownload&&matchMedia("(pointer:coarse)").matches&&navigator.canShare){
+  if(!forceDownload&&canShareFiles()){
     try{const file=new File([blob],fname,{type:blob.type});
       if(navigator.canShare({files:[file]})){await navigator.share({files:[file],title:fname});return "shared";}}
     catch(e){if(e&&e.name==="AbortError")return "cancel";}
   }
   anchorDownload(blob,fname);return "downloaded";
 }
-const saveMsg=r=>({saved:"Relatório salvo. No iPhone, escolha “Salvar em Arquivos”; no Android ele vai para Downloads.",shared:"Arquivo enviado. Salve na pasta da rede, no Drive ou no Teams.",downloaded:"Arquivo baixado na pasta Downloads.",cancel:"Cancelado."})[r]||"";
+// O Chrome do Android não compartilha .xlsx; nesses aparelhos o app só baixa.
+let shareOK=null;
+function canShareFiles(){
+  if(shareOK!=null)return shareOK;
+  try{shareOK=!!(navigator.canShare&&matchMedia("(pointer:coarse)").matches&&navigator.canShare({files:[new File([new Blob(["x"])],"teste.xlsx",{type:XLSX_MIME})]}));}catch(e){shareOK=false;}
+  return shareOK;
+}
+const saveMsg=r=>({saved:"Relatório salvo. No iPhone, escolha “Salvar em Arquivos”; no Android ele vai para Downloads.",shared:"Arquivo enviado. Salve na pasta da rede, no Drive ou no Teams.",downloaded:"Arquivo salvo em Downloads. Para mandar à rede, abra pelo app Arquivos e compartilhe.",cancel:"Cancelado."})[r]||"";
 function buildXlsxFallback(s){
   const wb=XLSX.utils.book_new();
   C.sheets(s).forEach(sh=>{const ws=XLSX.utils.aoa_to_sheet(sh.aoa);ws["!cols"]=sh.cols.map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,sh.name);});
